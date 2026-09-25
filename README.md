@@ -1,4 +1,16 @@
+<p><img src="docs/assets/app-icon.svg" width="88" height="88" alt="puresite icon"></p>
+
 # PureSite
+
+## App documentation
+
+Build static websites as real files, with preview and publishing controls.
+
+1. Create or open a `.site` project and edit its pages, styles, scripts, and assets.
+2. Preview the site and follow its links to check the result.
+3. Save the project and use a configured publishing destination when ready to publish. Hosting credentials and services are configured separately.
+
+Read the [app guide](docs/app-guide.md) for usage and development requirements. This app runs within [puredesktop](https://puredesktop.ai).
 
 ## Open source and contributions
 
@@ -15,28 +27,17 @@ Copyright (c) 2026 pure.science inc. Third-party code, dependencies, and assets 
 
 ### Major open-source projects
 
-- [react](https://github.com/react/react).
-- [react-dom](https://github.com/react/react).
-- [styled-components](https://github.com/styled-components/styled-components).
+| Project / source | Homepage or documentation | Support the maintainers |
+| --- | --- | --- |
+| [react/react](https://github.com/react/react) | [Homepage / docs](https://react.dev) | — |
+| [styled-components/styled-components](https://github.com/styled-components/styled-components) | [Homepage / docs](https://styled-components.com) | [GitHub Sponsors](https://github.com/sponsors/quantizor) · [Open Collective](https://opencollective.com/styled-components) |
 
 Thank you to these projects and their contributors. Additional direct dependencies,
 upstream links, and asset notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-### Snapshot and development context
-
-Based on a cleaned snapshot from [Nikau-Dev/puresite](https://github.com/Nikau-Dev/puresite) at
-commit `ebbc3e7eb23b6c0f08684b9c57a3b50af17f5653` (main branch snapshot, 2026-09-25).
-This repository begins with one clean initial commit; previous Git history was not copied.
-Bundled demo datasets, saved development records, and identifying personal examples were removed or anonymized.
-
-This is a PureDesktop app source repository. Local `@purescience/platform-*`
-dependencies refer to shared packages in the parent suite and are not included here.
-Use the matching PureDesktop development environment and the app's existing scripts;
-this snapshot alone is not a complete standalone desktop application.
-
 
 Build a static website as real files, preview it as it will ship, and publish
-it. A PureDesktop app, port 5450.
+it. A [puredesktop](https://puredesktop.ai) app, port 5450.
 
 ## The document
 
