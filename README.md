@@ -2,9 +2,25 @@
 
 # puresite
 
-## What puresite does
+**Build and publish websites as real files.** An app for [puredesktop](https://puredesktop.ai).
+
+[Get started](#getting-started) · [App guide](docs/app-guide.md) · [Develop](docs/development.md) · [Developer account](https://puredesktop.ai/developers)
+
+## What it does
 
 A static-site workspace that treats a website as real page, style, script, and asset files. Create pages, inspect the site visually, preview changes, and publish through a configured destination.
+
+## Requirements
+
+Use a compatible [puredesktop](https://puredesktop.ai) build for desktop integration, storage, and the app drawer. Developer setup is covered in the [development guide](docs/development.md).
+
+Editing uses the desktop host. Publishing requires a configured destination; hosted collections and forms require compatible hosting support.
+
+## Getting started
+
+1. Create or open a `.site` project and edit its pages, styles, scripts, and assets.
+2. Preview the site and follow its links to check the result.
+3. Save the project and use a configured publishing destination when ready to publish. Hosting credentials and services are configured separately.
 
 ## App layout
 
@@ -17,31 +33,46 @@ A static-site workspace that treats a website as real page, style, script, and a
 
 The app also uses the shared [puredesktop](https://puredesktop.ai) shell and drawer agent. Panels can vary with the current view and selection.
 
-## Getting started
+## Working with the agent
 
-1. Create or open a `.site` project and edit its pages, styles, scripts, and assets.
-2. Preview the site and follow its links to check the result.
-3. Save the project and use a configured publishing destination when ready to publish. Hosting credentials and services are configured separately.
+Open the app’s drawer in [puredesktop](https://puredesktop.ai) and describe what you want to do. For example:
 
-Read the [app guide](docs/app-guide.md) for development, loading, and source-layout details.
+> Check this site for broken links.
+>
+> Add an about page that matches the existing design.
+
+The app exposes 29 tools, including `getDrawerRequest`, `getSiteContext`, `getSiteMap`. See [agents.md](agents.md) for workflows and [plugin.json](plugin.json) for the complete tool schemas and approval flags. Some actions apply directly, while approval-marked actions ask first. Check the result in the app after a change.
+
+## Files and data
+
+A `.site` folder contains `site.json`, HTML pages, shared styles, assets, and generated build/history folders. Publishing uploads the build to the configured destination.
 
 ## Develop and customize
 
-We welcome **developers and vibecoders alike**. You can add features to puresite, develop a fork, or create a new app for [puredesktop](https://puredesktop.ai).
+We welcome **developers and vibecoders alike**. Fork puresite, add a feature, or use what you learn to build a new app.
 
-### Use Claude Code, Codex, or your own tools
+| Develop your way | Workflow |
+| --- | --- |
+| **Claude Code, Codex, or your editor** | Open the app’s source folder, read `README.md`, `plugin.json`, `package.json`, and `agents.md`, then make changes and run the app’s checks. Test inside [puredesktop](https://puredesktop.ai) with matching shared platform packages. |
+| **purefactory** | Choose **Start building** for a new app, or select an available app project to extend it. Use **Open folder** for external tools and **Open app** to test. |
+| **App drawer** | Request a local app change where app-development integration is available. Make clear whether you want to change the app itself or its current document. |
 
-Open a local source checkout or a purefactory project's folder in your preferred coding tool. Ask it to read this README, `plugin.json`, `package.json`, `agents.md`, and the [development guide](docs/development.md) before making changes. Review the changes, run the app's checks, and test it inside [puredesktop](https://puredesktop.ai). This source may require matching shared platform packages; a browser preview alone does not provide desktop services.
+Use **Share** in purefactory to create a `.pureapp` package, then **Settings → System → Install an app → Choose package…** to load it in current builds. Source availability and integration vary by host build.
 
-The [development guide](docs/development.md) explains how to start Claude Code or Codex in the project, work on this repository, and load your app into the desktop.
+Follow the [development guide](docs/development.md) for Claude Code/Codex commands, app-specific setup and checks, and packaging. A standalone browser preview does not provide every desktop service.
 
-### Use purefactory inside the desktop
+## Documentation and limitations
 
-Open **purefactory** (Factory) to describe a new app, or select an available app project and request a feature. Use **Open folder** to continue with external tools and **Open app** to test the result. You can also request a local app change through the app's drawer where app-development integration is available; distinguish changing the app from editing its current document.
+| Guide | What it covers |
+| --- | --- |
+| [App guide](docs/app-guide.md) | App overview, source layout, and usage. |
+| [Development guide](docs/development.md) | External coding tools, purefactory, checks, and installation. |
+| [Agent guide](agents.md) | App-specific agent workflows and constraints. |
+| [Technical reference](docs/technical-reference.md) | Architecture, file formats, detailed controls, and checks. |
 
-Use **Share** in purefactory to create a `.pureapp` package. In current builds, install it through **Settings → System → Install an app → Choose package…**. See the [development guide](docs/development.md#load-and-share-your-app) for the full workflow and version differences.
+Preview verification must pass before building. Collections and forms depend on the publishing target; local agent tools are not a server runtime for visitors.
 
-## Developer accounts and the marketplace
+## Contributing and marketplace
 
 We welcome **developers and vibecoders alike**. Go to [puredesktop.ai](https://puredesktop.ai) and [create a developer account](https://puredesktop.ai/developers) to join the developer community and submit your app for review.
 
@@ -49,13 +80,11 @@ Bring improvements to this app, develop a fork, or build something entirely new.
 
 For developer access, app submissions, or marketplace questions, contact [info@puredesktop.ai](mailto:info@puredesktop.ai).
 
-## Open source and contributions
+Anyone may use, study, modify, and share this app under its applicable licenses. We welcome pull requests, bug reports, and documentation improvements. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Credits and license
 
 Create, preview, and publish static websites.
-
-Anyone may use, study, modify, and share this software under the applicable licenses.
-We welcome pull requests, bug reports, documentation improvements, and new ideas.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
 
 ### License
 
@@ -71,62 +100,3 @@ Copyright (c) 2026 pure.science inc. Third-party code, dependencies, and assets 
 
 Thank you to these projects and their contributors. Additional direct dependencies,
 upstream links, and asset notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-
-Build a static website as real files, preview it as it will ship, and publish
-it. A [puredesktop](https://puredesktop.ai) app, port 5450.
-
-## The document
-
-A `.site` package is a folder you can open and read:
-
-```text
-My site.site/
-  site.json          title, nav order, target, brief, what each file is for
-  pages/index.html   one HTML file per page
-  styles/site.css    one stylesheet, shared by every page
-  assets/            images a page references
-  build/             what gets published
-```
-
-Pages are real files rather than one document split at build time. That costs
-a little — the app juggles a set of files instead of a string — and buys the
-things that matter: what you preview is what ships, links between pages are
-real, and an agent can be handed one page without the rest.
-
-## The three surfaces
-
-- **Wizard** — brief, files, how many pages, where it is going, and a look.
-- **Board** — pages down the left in nav order, the page itself in the middle
-  at a real viewport width, everything you can change to it on the right.
-- **Publish** — checks the site, writes `build/`, and hands the manifest to
-  the drawer agent, which uses whichever deploy tool is configured.
-
-## Two rules worth knowing
-
-**The package holds real files; the preview inlines them; the build copies
-them.** A sandboxed preview frame cannot resolve `assets/hero.png` against a
-folder on disk, so at view time the stylesheet is inlined and asset references
-become data URLs. What is written to disk keeps clean relative paths.
-
-**A page is never scaled to fit.** Unlike a slide, a web page is supposed to
-change shape, so the stage renders at a real width — phone, tablet, desktop —
-and lets the page be as tall as it is.
-
-## Phase one
-
-No bundler, no dev server, no `node_modules` in the site: a static site is
-already the thing that gets published, so building is copying. No forms,
-database or sign-ins — a static site cannot serve them, and agent tools run on
-the author's machine for the builder, not on the host for a visitor.
-
-## Working on it
-
-```bash
-npm run dev          # vite, port from plugin.json
-npm run typecheck
-npm run test
-npm run build && npm run puredesktop:check
-```
-
-Inside the suite: `npm run dev:suite -- puresite`.
