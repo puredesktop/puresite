@@ -32,8 +32,6 @@ Key files in this scaffold:
   when the first product surface exists.
 - `src/lib/starterWorkspace.ts`: starter data/helper example showing where
   reusable non-rendering logic belongs.
-- `scripts/validate-puredesktop-app.mjs`: registration and tool scaffold check.
 
-After a builder finishes a task and reviews its diff, PureDesktop runs `npm run
-typecheck`, `npm run build`, and `npm run puredesktop:check`. Any failure
-returns to the builder as repair input.
+PureDesktop validates `plugin.json` when loading the app. Factory runs
+typecheck, build, and runtime validation during app-development tasks.
