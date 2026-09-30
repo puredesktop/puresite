@@ -32,8 +32,8 @@ export const WhiteNeutral = createGlobalStyle`
     --glass-well: #ececec !important;
     --glass-edge: #dcdcdc !important;
     --glass-line: #e0e0e0 !important;
-    /* Behind the design: the grey PureBook and PureManuscript set their pages on. */
-    --site-stage: #eceef1;
+    /* Behind the design: a neutral grey a step darker than the ground, never a tinted one. */
+    --site-stage: #e6e6e6;
   }
   html:root[data-platform-appearance='white']:not([data-platform-theme='dark']) body {
     background: #f2f2f2 !important;
