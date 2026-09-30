@@ -198,7 +198,10 @@ export function SiteBoardView({
     const node=stageRef.current
     if(!node)return
     const measure=()=>{
-      const {width,height}=node.getBoundingClientRect()
+      // The design fits inside the stage's grey inset, not under it.
+      const box=node.getBoundingClientRect()
+      const width=box.width-2*STAGE_INSET
+      const height=box.height-2*STAGE_INSET
       if(width<=0||height<=0)return
       setStageSize(current=>current.width===width&&current.height===height?current:{width,height})
     }
@@ -1361,13 +1364,16 @@ const SizeButton = styled.button<{ $on: boolean }>`
   color: ${props => (props.$on ? 'var(--pure-chrome-on-accent)' : 'var(--platform-colors-text)')};
 `
 
+/** The grey margin around the design, so its edge and the stage both read. */
+const STAGE_INSET = 14
+
 const Stage = styled.div`
   flex: 1;
   min-height: 0;
   overflow: hidden;
   display: flex;
   justify-content: center;
-  padding: 0;
+  padding: ${STAGE_INSET}px;
   border-radius: 0;
   background: var(--site-stage, var(--pure-chrome-well));
 `
