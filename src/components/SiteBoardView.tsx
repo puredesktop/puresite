@@ -1622,7 +1622,10 @@ const Hint = styled.span`
   line-height: 1.5;
 `
 
-const Meta = styled.div.attrs(chrome('meta'))``
+/** Same face as the status beside it, so their baselines share one line; tabular figures keep the numbers even. */
+const Meta = styled.div.attrs(chrome('meta'))`
+  && { font-family: inherit; font-variant-numeric: tabular-nums; }
+`
 /**
  * Which of the two sites you are looking at.
  *
