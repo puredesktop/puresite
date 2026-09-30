@@ -1332,7 +1332,15 @@ const Middle = styled.div`
 `
 
 /** The one bar above the page: the platform's 36px editor toolbar. */
+/** A straight, full-width bar with a hairline under it: no rounded pill around the tools. */
 const Head = styled.div.attrs(chrome('toolbar'))`
+  && {
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--pure-chrome-line);
+    border-radius: 0;
+    padding: 0 12px;
+  }
   gap: 8px;
 `
 
@@ -1614,7 +1622,10 @@ const Hint = styled.span`
   line-height: 1.5;
 `
 
-const Meta = styled.div.attrs(chrome('meta'))``
+/** Same face as the status beside it, so their baselines share one line; tabular figures keep the numbers even. */
+const Meta = styled.div.attrs(chrome('meta'))`
+  && { font-family: inherit; font-variant-numeric: tabular-nums; }
+`
 /**
  * Which of the two sites you are looking at.
  *
