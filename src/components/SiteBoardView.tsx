@@ -198,7 +198,10 @@ export function SiteBoardView({
     const node=stageRef.current
     if(!node)return
     const measure=()=>{
-      const {width,height}=node.getBoundingClientRect()
+      // The design fits inside the stage's grey inset, not under it.
+      const box=node.getBoundingClientRect()
+      const width=box.width-2*STAGE_INSET
+      const height=box.height-2*STAGE_INSET
       if(width<=0||height<=0)return
       setStageSize(current=>current.width===width&&current.height===height?current:{width,height})
     }
@@ -586,6 +589,7 @@ export function SiteBoardView({
           >
             {verificationBadge(verification)}
           </Badge>
+          <Sep aria-hidden />
           <ToolbarButton type="button" onClick={onOpenHtml}>
             HTML
           </ToolbarButton>
@@ -1334,6 +1338,14 @@ const Head = styled.div.attrs(chrome('toolbar'))`
 
 const ToolbarButton = styled.button.attrs(chrome('toolbar-control'))``
 
+/** A hairline between the toolbar's status and its actions. */
+const Sep = styled.span`
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--pure-chrome-line);
+`
+
 const Sizes = styled.div`
   display: inline-flex;
   gap: 4px;
@@ -1352,15 +1364,18 @@ const SizeButton = styled.button<{ $on: boolean }>`
   color: ${props => (props.$on ? 'var(--pure-chrome-on-accent)' : 'var(--platform-colors-text)')};
 `
 
+/** The grey margin around the design, so its edge and the stage both read. */
+const STAGE_INSET = 14
+
 const Stage = styled.div`
   flex: 1;
   min-height: 0;
   overflow: hidden;
   display: flex;
   justify-content: center;
-  padding: 0;
+  padding: ${STAGE_INSET}px;
   border-radius: 0;
-  background: var(--pure-chrome-well);
+  background: var(--site-stage, var(--pure-chrome-well));
 `
 
 const StagePage = styled.div`
@@ -1372,6 +1387,8 @@ const StagePage = styled.div`
 
   background: #ffffff;
   align-self: flex-start;
+  /* A fine edge: a light design would otherwise melt into the stage around it. */
+  box-shadow: 0 0 0 1px var(--pure-chrome-line), 0 8px 24px rgb(0 0 0 / 0.06);
 `
 
 const Foot = styled.div`
@@ -1655,23 +1672,25 @@ const Waiting = styled.div`
   color: var(--pure-chrome-muted);
   font-size: var(--platform-typography-font-size-sm);
 `
-const DraftChip = styled.button.attrs(chrome('meta'))<{ $live: boolean }>`
+/* Status in the toolbar is quiet: one height, no pill or box; colour only on the dot. */
+const quietStatus = `
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  height: var(--pure-chrome-control-height);
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   font: inherit;
   font-size: var(--platform-typography-font-size-xs);
-  padding: 4px 10px;
-  border-radius: 999px;
-  cursor: pointer;
   white-space: nowrap;
-  border: 1px solid
-    ${({ $live }) =>
-      $live
-        ? 'var(--pure-chrome-line)'
-        : 'color-mix(in srgb, var(--pure-attention-text) 45%, transparent)'};
-  background: ${({ $live }) => ($live ? 'transparent' : 'var(--pure-attention-muted)')};
-  color: ${({ $live }) => ($live ? 'var(--pure-chrome-muted)' : 'var(--pure-attention-text)')};
+  cursor: pointer;
+  &:hover { background: var(--pure-chrome-hover); }
+`
+const DraftChip = styled.button.attrs(chrome('meta'))<{ $live: boolean }>`
+  && { ${quietStatus} }
+  && { color: ${({ $live }) => ($live ? 'var(--pure-chrome-muted)' : 'var(--platform-colors-text)')}; }
   .dot {
     width: 7px;
     height: 7px;
@@ -1681,15 +1700,8 @@ const DraftChip = styled.button.attrs(chrome('meta'))<{ $live: boolean }>`
 `
 /** How many pages the writing promises that nobody has built. */
 const PromisedChip = styled.button.attrs(chrome('meta'))`
-  font: inherit;
-  font-size: var(--platform-typography-font-size-xs);
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--pure-attention-text) 45%, transparent);
-  background: var(--pure-attention-muted);
-  color: var(--pure-attention-text);
-  cursor: pointer;
-  white-space: nowrap;
+  && { ${quietStatus} color: var(--platform-colors-text); }
+  &&::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--pure-attention-text); }
 `
 
 const Mono = styled.div.attrs(chrome('meta'))`
@@ -1772,17 +1784,12 @@ const PrimaryButton = styled.button`
   }
 `
 
-/** A 28px outlined toolbar select that says how honest the preview is. */
+/** Says how honest the preview is, quietly; red only when it failed. */
 const Badge = styled.button.attrs(chrome('toolbar-select'))<{
   $state: 'verified' | 'checking' | 'failed'
 }>`
   && {
-    border-color: ${props =>
-      props.$state === 'failed' ? 'var(--platform-colors-danger)' : 'var(--pure-chrome-line)'};
-    background: ${props =>
-      props.$state === 'failed'
-        ? 'var(--platform-colors-danger-surface, rgb(180 52 14 / 0.1))'
-        : 'transparent'};
+    ${quietStatus}
     color: ${props =>
       props.$state === 'failed'
         ? 'var(--platform-colors-danger)'
