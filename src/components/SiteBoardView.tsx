@@ -1381,6 +1381,8 @@ const StagePage = styled.div`
 
   background: #ffffff;
   align-self: flex-start;
+  /* A fine edge: a light design would otherwise melt into the stage around it. */
+  box-shadow: 0 0 0 1px var(--pure-chrome-line), 0 8px 24px rgb(0 0 0 / 0.06);
 `
 
 const Foot = styled.div`
