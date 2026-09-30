@@ -1694,7 +1694,7 @@ const quietStatus = `
   border-radius: 7px;
   background: transparent;
   font: inherit;
-  font-size: var(--platform-typography-font-size-xs);
+  font-size: var(--pure-chrome-meta-size);
   white-space: nowrap;
   cursor: pointer;
   &:hover { background: var(--pure-chrome-hover); }
