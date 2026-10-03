@@ -10,6 +10,26 @@ import {
 } from './preview'
 import { planBuild, checkSite } from './buildSite'
 import { createDefaultSiteDocument } from './siteDocument'
+import { MAX_INLINE_BYTES } from '../constants'
+
+it('includes shared CSS fonts and backgrounds in the build', () => {
+  const document = createDefaultSiteDocument()
+  document.styles += '@font-face { src: url(../assets/face.woff2) } body { background: url(../assets/ground.png) }'
+  expect(planBuild(document, ['face.woff2', 'ground.png', 'spare.png']).assets).toEqual(['face.woff2', 'ground.png'])
+  expect(checkSite(document, [], {}).filter(f => f.code === 'missing-asset').map(f => f.message)).toEqual([
+    'styles/site.css references assets/face.woff2, which is not in the package',
+    'styles/site.css references assets/ground.png, which is not in the package',
+  ])
+})
+
+it('counts shared stylesheet assets in the preview budget only when the stylesheet is linked', () => {
+  const html = '<link rel="stylesheet" href="styles/site.css"><p>Words</p>'
+  const css = '@font-face { src: url(../assets/face.woff2) }'
+  const assets = { 'face.woff2': 'data:font/woff2;base64,' + 'A'.repeat(MAX_INLINE_BYTES) }
+  expect(oversizeAssets(html, assets, css)?.names).toEqual(['face.woff2'])
+  expect(previewDocument({ html, styles: css, assets })).not.toContain('data:font/woff2')
+  expect(oversizeAssets('<p>Unstyled</p>', assets, css)).toBeNull()
+})
 
 const assets = { 'hero.png': 'data:image/png;base64,AAAA' }
 const styles = 'body { color: red }'

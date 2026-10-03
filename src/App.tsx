@@ -2,7 +2,7 @@ import { useVideoDrop, useImageDrop } from '@purescience/platform-ui/bridge/reac
 import { imageTransferMarkup } from '@purescience/platform-ui/bridge/imageTransfer'
 import { videoEmbedMarkup } from '@purescience/platform-ui/bridge/videoTransfer'
 import { reviewHtml, reviewFilename } from './lib/reviewExport'
-import { chooseReviewExportPath, renderReviewPage } from './bridge/platformBridge'
+import { chooseReviewExportPath, renderReviewPage, chooseSiteFolder, registerSiteFolder } from './bridge/platformBridge'
 import type { PreviewViewport } from './lib/previewViewport'
 /**
  * PureSite: build a static website as real files, preview it as it will ship,
@@ -31,6 +31,7 @@ import {
 import { manifestWithoutPublished } from './lib/siteHash'
 import { AppFrame } from '@purescience/platform-bridge/components/AppFrame'
 import { EmptyState } from '@purescience/platform-ui/components/common/feedback/EmptyState'
+import { InlineBanner } from '@purescience/platform-ui/components/common/feedback/InlineBanner'
 import { usePlatformBridge } from '@purescience/platform-ui/bridge/react/usePlatformBridge'
 import { usePlatformViewportResource } from '@purescience/platform-ui/bridge/react/usePlatformViewportResource'
 import { useDocumentLifecycle } from '@purescience/platform-ui/bridge/react/useDocumentLifecycle'
@@ -62,8 +63,6 @@ import {
   isDefaultSiteTitle,
   isUntouchedStarter,
   orderedPages,
-  parseSiteManifest,
-  serializeSiteManifest,
   setPageTitle as applyPageTitle,
   titleFromPage,
   type SiteDocument,
@@ -99,10 +98,10 @@ import {
   checkCollections,
   dataProviderFor,
   formSnippetFor,
-  parseCollections,
   type Collection,
 } from './lib/siteData'
 import { siteDesignGuide, type ReferenceImage } from './lib/draftSite'
+import { mapConcurrent, readSitePackage, serializeSitePackage } from './lib/packageIO'
 import {
   DEFAULT_SERVICE_ID,
   loadPublishServices,
@@ -240,6 +239,10 @@ export function App(): React.ReactElement {
   const documentRef = useRef(document)
   const [documentPath, setDocumentPath] = useState<string | null>(null)
   const [documentStarted, setDocumentStarted] = useState(false)
+  const [opening, setOpening] = useState(false)
+  const openingRef = useRef(false)
+  const openGeneration = useRef(0)
+  const materialGeneration = useRef(0)
   const [selectedPage, setSelectedPage] = useState(DEFAULT_HOME_PAGE)
   const [selection, setSelection] = useState<SiteSelection | null>(null)
   // Pages the next request applies to. Empty means the one on screen.
@@ -356,6 +359,7 @@ export function App(): React.ReactElement {
     onExternalChange: ({ path, dirty }: { path: string; dirty: boolean }) => {
       if (dirty) return
       if (buildingRef.current) return
+      if (openingRef.current) return
       void openSitePathRef.current?.(path)
     },
     /**
@@ -369,23 +373,7 @@ export function App(): React.ReactElement {
      */
     serialize: () => {
       const current = boundDocumentRef.current
-      return [
-        {
-          name: SITE_MANIFEST_FILE,
-          content: serializeSiteManifest({
-            ...current.manifest,
-            title: current.title,
-            pages: orderedPages(current).map(page => page.path),
-            assets: notesFrom(materialRef.current),
-          }),
-        },
-        ...Object.entries(current.pages).map(([path, html]) => ({
-          name: `${SITE_PAGES_DIR}/${path}`,
-          content: html,
-        })),
-        { name: SITE_STYLESHEET, content: current.styles },
-        { name: `${SITE_ASSETS_DIR}/.keep`, content: '' },
-      ]
+      return serializeSitePackage(current, materialRef.current)
     },
   })
   const lifecycleRef = useRef(lifecycle)
@@ -423,6 +411,8 @@ export function App(): React.ReactElement {
   const landEdit = useCallback(
     (request: SiteLanding): SiteLanded => {
       const previous = documentRef.current
+      if (openingRef.current) return { ok: false, reason: 'stale', currentHash: hashRef.current,
+        message: 'The site is opening. Wait for it to finish before editing.' }
       if (
         request.origin === 'agent' &&
         drawerRequestRef.current?.status === 'prepared' &&
@@ -567,57 +557,39 @@ export function App(): React.ReactElement {
     )
   }, [document.pages, pages, selectedPage])
 
-  const loadPreviews = useCallback(
-    async (path: string, items: MaterialItem[]): Promise<void> => {
-      for (const item of items) {
-        if (item.kind !== 'image') continue
-        try {
-          const dataUrl = await readBinaryDataUrl(
-            `${path}/${SITE_ASSETS_DIR}/${item.name}`,
-            12 * 1024 * 1024,
-          )
-          setPreviews(current =>
-            current[item.name] === dataUrl
-              ? current
-              : { ...current, [item.name]: dataUrl },
-          )
-        } catch {
-          // A file that will not read shows its name, as it did before.
+  const loadMaterial = useCallback(
+    async (path: string, notes: AssetNote[] = notesFrom(materialRef.current)) => {
+      const generation = ++materialGeneration.current
+      const current = () => generation === materialGeneration.current && boundPathRef.current === path
+      try {
+        const listing = await listFiles(`${path}/${SITE_ASSETS_DIR}`) as {
+          entries?: { name?: string; isDirectory?: boolean; size?: number }[]
         }
+        if (!current()) return
+        const files = (listing?.entries ?? [])
+          .filter((entry): entry is { name: string; isDirectory?: boolean; size?: number } =>
+            typeof entry?.name === 'string' && !entry.isDirectory)
+          .map(entry => ({ name: entry.name, bytes: entry.size }))
+        const merged = mergeMaterial(files, notes)
+        materialRef.current = merged
+        setMaterial(merged)
+        previewsRef.current = {}
+        setPreviews({})
+        const loaded = await mapConcurrent(merged.filter(item => item.kind === 'image' || item.kind === 'font'), async item => {
+          if (!current()) return null
+          const dataUrl = await readBinaryDataUrl(`${path}/${SITE_ASSETS_DIR}/${item.name}`, 12 * 1024 * 1024).catch(() => null)
+          return dataUrl ? [item.name, dataUrl] as const : null
+        })
+        if (!current()) return
+        const assets = Object.fromEntries(loaded.filter((entry): entry is readonly [string, string] => entry !== null))
+        previewsRef.current = assets
+        setPreviews(assets)
+      } catch {
+        if (!current()) return
+        setStatus('The asset folder could not be read. Saved asset notes have been kept.')
       }
     },
     [],
-  )
-
-  const loadMaterial = useCallback(
-    async (
-      path: string,
-      notes: AssetNote[] = notesFrom(materialRef.current),
-    ) => {
-      try {
-        const listing = (await listFiles(`${path}/${SITE_ASSETS_DIR}`)) as {
-          entries?: { name?: string; isDirectory?: boolean; size?: number }[]
-        }
-        const files = (listing?.entries ?? [])
-          .filter(
-            (
-              entry,
-            ): entry is {
-              name: string
-              isDirectory?: boolean
-              size?: number
-            } => typeof entry?.name === 'string' && !entry.isDirectory,
-          )
-          .map(entry => ({ name: entry.name, bytes: entry.size }))
-        const merged = mergeMaterial(files, notes)
-        setMaterial(merged)
-        void loadPreviews(path, merged)
-      } catch {
-        setMaterial([])
-        setPreviews({})
-      }
-    },
-    [loadPreviews],
   )
 
   /**
@@ -629,73 +601,54 @@ export function App(): React.ReactElement {
    */
   const openSitePath = useCallback(
     async (root: string): Promise<void> => {
+      const generation = ++openGeneration.current
+      materialGeneration.current++
+      openingRef.current = true
+      setOpening(true)
       setError(null)
       setStatus('Opening…')
       try {
-        const manifestText = await readTextFile(
-          `${root}/${SITE_MANIFEST_FILE}`,
-        ).catch(() => '{}')
-        const manifest = parseSiteManifest(manifestText)
-
-        const collected: Record<string, string> = {}
-        const walk = async (relative: string): Promise<void> => {
-          const listing = (await listFiles(
-            `${root}/${SITE_PAGES_DIR}${relative ? `/${relative}` : ''}`,
-          )) as { entries?: { name?: string; isDirectory?: boolean }[] }
-          for (const entry of listing?.entries ?? []) {
-            if (!entry?.name) continue
-            const next = relative ? `${relative}/${entry.name}` : entry.name
-            if (entry.isDirectory) {
-              await walk(next)
-            } else if (/\.html?$/i.test(entry.name)) {
-              collected[next] = await readTextFile(
-                `${root}/${SITE_PAGES_DIR}/${next}`,
-              )
-            }
+        const switching = boundPathRef.current !== root
+        if (switching) {
+          // Save the old document and its asset notes before replacing any refs.
+          await lifecycleRef.current.flush({ throwOnError: true })
+          await history.flush()
+        }
+        if (generation !== openGeneration.current) return
+        const base = documentRef.current
+        const next = await readSitePackage(root, { read: readTextFile, list: listFiles })
+        if (generation !== openGeneration.current) return
+        // A tool/edit that landed during an external refresh wins over that read.
+        if (!switching && documentRef.current !== base) return
+        let savedRequest: DrawerRequest | null = null
+        try {
+          const saved = JSON.parse(await readTextFile(`${root}/drawer-request.json`)) as DrawerRequest
+          if (saved.path === root || saved.outputHash === siteHash(next)) {
+            saved.path = root
+            savedRequest = saved
           }
-        }
-        await walk('')
-
-        const styles = await readTextFile(`${root}/${SITE_STYLESHEET}`).catch(
-          () => createDefaultSiteDocument().styles,
-        )
-
-        // The host's manifest is the source when a package has one: it may
-        // have been edited by hand or by the agent, and the app should show
-        // what will actually ship.
-        const dataManifest = await readTextFile(
-          `${root}/${SITE_BUILD_DIR}/.herenow/data.json`,
-        ).catch(() => '')
-
-        const next: SiteDocument = {
-          title: manifest.title,
-          pages: Object.keys(collected).length
-            ? collected
-            : createDefaultSiteDocument().pages,
-          styles,
-          manifest,
-          collections: dataManifest ? parseCollections(dataManifest) : [],
-        }
+        } catch { /* Older packages have no saved drawer request. */ }
+        if (generation !== openGeneration.current) return
+        await history.load(root)
+        if (generation !== openGeneration.current) return
+        const manifest = next.manifest
+        boundPathRef.current = root
+        lifecycleRef.current.adopt(root, { title: next.title })
+        namedOnceRef.current = false
+        drawerRequestRef.current = savedRequest
+        materialRef.current = mergeMaterial(manifest.assets.map(note => ({ name: note.name })), manifest.assets)
+        previewsRef.current = {}
+        setMaterial(materialRef.current)
+        setPreviews({})
+        setPageSelection([])
+        setWizardOpen(false)
         setDocument(next)
         documentRef.current = next
         boundDocumentRef.current = next
         hashRef.current = siteHash(next)
-        drawerRequestRef.current = null
-        try {
-          const saved = JSON.parse(
-            await readTextFile(`${root}/drawer-request.json`),
-          ) as DrawerRequest
-          if (saved.path === root || saved.outputHash === hashRef.current) {
-            saved.path = root
-            drawerRequestRef.current = saved
-          }
-        } catch {
-          /* Packages created before drawer requests have no request file. */
-        }
         evidenceRef.current = {}
         setEvidence({})
         setUndoOffer(null)
-        await history.load(root)
         setDocumentPath(root)
         setDocumentStarted(true)
         // Where this site already lives, restored from the manifest — the
@@ -727,14 +680,34 @@ export function App(): React.ReactElement {
         }
         setStatus(`Opened ${manifest.title}`)
       } catch (openError) {
+        if (generation !== openGeneration.current) return
         setError(
-          openError instanceof Error ? openError.message : String(openError),
+          `Could not open the site: ${openError instanceof Error ? openError.message : String(openError)}`,
         )
+        setStatus('The site was not opened.')
+      } finally {
+        if (generation === openGeneration.current) { openingRef.current = false; setOpening(false) }
       }
     },
     [history, loadMaterial],
   )
   openSitePathRef.current = openSitePath
+
+  const chooseSiteFromSystem = useCallback(async (): Promise<void> => {
+    try {
+      const selected = await chooseSiteFolder()
+      if (!selected) return
+      const path = selected.replace(/\/+$/, '')
+      if (!path.toLowerCase().endsWith(SITE_PACKAGE_SUFFIX)) {
+        throw new Error('Choose a .site folder to open a site.')
+      }
+      await registerSiteFolder(path)
+      setSwitcherOpen(false)
+      await openSitePath(path)
+    } catch (pickError) {
+      setError(pickError instanceof Error ? pickError.message : String(pickError))
+    }
+  }, [openSitePath])
 
   useEffect(() => {
     if (!resource?.path) return
@@ -765,14 +738,15 @@ export function App(): React.ReactElement {
 
         // Only the images the home page actually uses, so a site with a
         // folder of photographs does not turn its card into megabytes.
-        const assets: Record<string, string> = {}
-        for (const name of referencedAssets(html)) {
+        const names = [...new Set([...referencedAssets(html), ...referencedAssets(styles)])]
+        const loaded = await mapConcurrent(names, async name => {
           const dataUrl = await readBinaryDataUrl(
             `${item.path}/${SITE_ASSETS_DIR}/${name}`,
             4 * 1024 * 1024,
           ).catch(() => null)
-          if (dataUrl) assets[name] = dataUrl
-        }
+          return dataUrl ? [name, dataUrl] as const : null
+        })
+        const assets = Object.fromEntries(loaded.filter((entry): entry is readonly [string, string] => entry !== null))
 
         return {
           kind: 'html',
@@ -796,7 +770,7 @@ export function App(): React.ReactElement {
    */
   const namedOnceRef = useRef(false)
   useEffect(() => {
-    if (namedOnceRef.current) return
+    if (namedOnceRef.current || opening) return
     const path = lifecycleRef.current.doc.path
     if (!path) return
     const fileName = path.split('/').pop() ?? ''
@@ -818,38 +792,32 @@ export function App(): React.ReactElement {
         }
       }
     })()
-  }, [document.title, lifecycle.doc.path])
-
-  /**
-   * Bind the lifecycle to whatever site is open.
-   *
-   * Opening a package sets the app's own path, but the lifecycle has to be
-   * told as well or it keeps saving to the last thing it knew about — and
-   * without it `rename` has nothing to rename, which is how a site kept its
-   * "Untitled" folder while its manifest carried a real title.
-   */
-  useEffect(() => {
-    if (boundPathRef.current === documentPath) return
-    const target = documentPath
-    const current = lifecycleRef.current
-    void current.flush().finally(() => {
-      boundPathRef.current = target
-      boundDocumentRef.current = documentRef.current
-      if (target) current.adopt(target, { title: documentRef.current.title })
-      else current.reset()
-    })
-  }, [documentPath])
+  }, [document.title, lifecycle.doc.path, opening])
 
   // A path the lifecycle changed under us (promote, rename) is the real one.
   useEffect(() => {
     const path = lifecycle.doc.path
-    if (path && path !== boundPathRef.current) {
+    if (!openingRef.current && path && path !== boundPathRef.current) {
       boundPathRef.current = path
       setDocumentPath(path)
     }
   }, [lifecycle.doc.path])
 
   const createNewSite = useCallback(async (): Promise<void> => {
+    const generation = ++openGeneration.current
+    materialGeneration.current++
+    openingRef.current = true
+    setOpening(true)
+    try {
+      await lifecycleRef.current.flush({ throwOnError: true })
+      await history.flush()
+      if (generation !== openGeneration.current) return
+    } catch (saveError) {
+      if (generation === openGeneration.current) {
+        setError(String(saveError)); openingRef.current = false; setOpening(false)
+      }
+      return
+    }
     namedOnceRef.current = false
     setSwitcherOpen(false)
     const next = createDefaultSiteDocument()
@@ -867,20 +835,25 @@ export function App(): React.ReactElement {
     publishedRef.current = null
     setError(null)
     setDocumentStarted(true)
+    materialRef.current = []
+    previewsRef.current = {}
     setMaterial([])
     setPreviews({})
+    setPageSelection([])
     setSelectedPage(DEFAULT_HOME_PAGE)
     setSelection(null)
     setWizardOpen(true)
     setStatus('New site.')
     try {
       const path = await lifecycleRef.current.ensureDraft()
-      if (path) {
+      if (path && generation === openGeneration.current) {
         boundPathRef.current = path
         setDocumentPath(path)
       }
     } catch {
       // Standalone dev: keep the in-memory site.
+    } finally {
+      if (generation === openGeneration.current) { openingRef.current = false; setOpening(false) }
     }
   }, [history])
 
@@ -1381,7 +1354,7 @@ export function App(): React.ReactElement {
         oversize: Object.fromEntries(
           Object.entries(document.pages).map(([path, html]) => [
             path,
-            oversizeAssets(html, previews),
+            oversizeAssets(html, previews, document.styles, path),
           ]),
         ),
       }),
@@ -1405,7 +1378,7 @@ export function App(): React.ReactElement {
       oversize: Object.fromEntries(
         Object.entries(current.pages).map(([path, html]) => [
           path,
-          oversizeAssets(html, assets),
+          oversizeAssets(html, assets, current.styles, path),
         ]),
       ),
     })
@@ -2141,6 +2114,8 @@ export function App(): React.ReactElement {
     )
   }
 
+  if (opening) return <AppFrame><EmptyState tone="neutral" title="Opening site" message="Reading the site’s files…" /></AppFrame>
+
   const hasOpenSite = documentStarted || documentPath !== null
 
 
@@ -2160,6 +2135,7 @@ export function App(): React.ReactElement {
         />
       }
     >
+      {error && <InlineBanner variant="danger" onDismiss={() => setError(null)}>{error}</InlineBanner>}
       {!hasOpenSite ? (
         <DocumentSwitcher
           appSlug={SITE_APP_SLUG}
@@ -2167,6 +2143,7 @@ export function App(): React.ReactElement {
           variant="landing"
           previewStyle="grid"
           loadPreview={loadSitePreview}
+          onChooseFromSystem={chooseSiteFromSystem}
           onOpenDocument={(path: string) => void openSitePath(path)}
           onCreateNew={() => void createNewSite()}
           newLabel="New site"
@@ -2554,6 +2531,7 @@ export function App(): React.ReactElement {
         variant="modal"
         previewStyle="grid"
         loadPreview={loadSitePreview}
+        onChooseFromSystem={chooseSiteFromSystem}
         open={switcherOpen}
         onClose={() => setSwitcherOpen(false)}
         onOpenDocument={(path: string) => {

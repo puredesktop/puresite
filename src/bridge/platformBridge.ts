@@ -14,8 +14,19 @@ import {
   writePlatformTextFile,
 } from '@purescience/platform-ui/bridge/fs'
 import { openExternalUrl as openPlatformExternalUrl } from '@purescience/platform-ui/bridge/os'
+import { openPlatformFolderDialog } from '@purescience/platform-ui/bridge/dialog'
+import { registerPlatformAppObject } from '@purescience/platform-ui/bridge/documents'
+import { SITE_APP_SLUG } from '../constants'
 
 export { bridge }
+
+export async function chooseSiteFolder(): Promise<string | null> {
+  return openPlatformFolderDialog()
+}
+
+export async function registerSiteFolder(path: string): Promise<void> {
+  await registerPlatformAppObject({ appSlug: SITE_APP_SLUG, path })
+}
 
 export function isStandaloneDevMode(): boolean {
   return import.meta.env.DEV && window.parent === window

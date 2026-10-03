@@ -52,6 +52,7 @@ export function planBuild(
   }
 
   files.push({ path: SITE_STYLESHEET, bytes: document.styles.length })
+  for (const asset of referencedAssets(document.styles)) used.add(asset)
 
   const assets = [...used].filter(name => availableAssets.includes(name))
   for (const name of assets) files.push({ path: `assets/${name}`, bytes: 0 })
@@ -199,5 +200,12 @@ export function checkSite(
     }
   }
 
+  for (const asset of referencedAssets(document.styles)) {
+    if (!availableAssets.includes(asset)) findings.push({
+      severity: 'error', code: 'missing-asset',
+      message: `styles/site.css references assets/${asset}, which is not in the package`,
+      fix: 'add the file to assets/ or change the stylesheet reference',
+    })
+  }
   return findings
 }
