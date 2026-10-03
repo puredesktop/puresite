@@ -23,6 +23,12 @@ a little — the app juggles a set of files instead of a string — and buys the
 things that matter: what you preview is what ships, links between pages are
 real, and an agent can be handed one page without the rest.
 
+Collection edits save into a root `collections.json` file before a build is made.
+Older packages without this file read their last `build/.herenow/data.json`;
+the next save writes the durable definitions. A saved empty list takes priority
+over older generated output, so deleted collections do not reappear on reopen.
+Unreadable or malformed saved definitions stop opening with a visible error.
+
 ## The three surfaces
 
 - **Wizard** — brief, files, how many pages, where it is going, and a look.
