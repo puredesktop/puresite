@@ -55,6 +55,7 @@ export function mergeMaterial(
         description: note?.description ?? '',
         role: note?.role ?? 'content',
         ...(note?.described ? { described: true } : {}),
+        ...(note?.alias ? { alias: note.alias } : {}),
         ...(file.bytes === undefined ? {} : { bytes: file.bytes }),
         reference: `assets/${file.name}`,
         kind: kindOf(file.name),
@@ -65,10 +66,11 @@ export function mergeMaterial(
 /** Notes for the manifest, dropping empties so the file stays clean. */
 export function notesFrom(items: MaterialItem[]): AssetNote[] {
   return items
-    .filter(item => item.description.trim() || item.role !== 'content')
+    .filter(item => item.description.trim() || item.role !== 'content' || item.alias?.trim())
     .map(item => ({
       name: item.name,
       description: item.description.trim(),
+      ...(item.alias?.trim() ? { alias: item.alias.trim() } : {}),
       ...(item.described ? { described: true } : {}),
       ...(item.role && item.role !== 'content' ? { role: item.role } : {}),
     }))

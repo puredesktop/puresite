@@ -121,6 +121,15 @@ function inlineBudget(html: string, assets: Record<string, string>): number {
   return bytes
 }
 
+function inlineStyles(html: string, styles: string, page: string): string {
+  return html.replace(LINK_TAG, tag => {
+    if (!/\brel=("|')stylesheet\1/i.test(tag)) return tag
+    const href = attribute(tag, 'href')
+    return href && resolvePagePath(page, href) === SITE_STYLESHEET
+      ? `<style>\n${styles}\n</style>` : tag
+  })
+}
+
 /**
  * The assets a page references that the preview cannot show: together they
  * are past what one srcdoc can carry, so none are inlined and the frame
@@ -130,10 +139,13 @@ function inlineBudget(html: string, assets: Record<string, string>): number {
 export function oversizeAssets(
   html: string,
   assets: Record<string, string>,
+  styles = '',
+  page = DEFAULT_HOME_PAGE,
 ): { names: string[]; bytes: number } | null {
-  const bytes = inlineBudget(html, assets)
+  const rendered = inlineStyles(html, styles, page)
+  const bytes = inlineBudget(rendered, assets)
   if (bytes <= MAX_INLINE_BYTES) return null
-  const names = referencedAssets(html).filter(name => assets[name])
+  const names = referencedAssets(rendered).filter(name => assets[name])
   return { names, bytes }
 }
 
@@ -150,21 +162,12 @@ export function previewDocument({
   page = DEFAULT_HOME_PAGE,
   knownPages,
 }: PreviewInput): string {
-  const affordable = inlineBudget(html, assets) <= MAX_INLINE_BYTES
-  let out = html
+  let out = inlineStyles(html, styles, page)
+  const affordable = inlineBudget(out, assets) <= MAX_INLINE_BYTES
 
   // Only a link that resolves to the stylesheet becomes the stylesheet. One
   // that resolves elsewhere is left as it is and 404s in the frame, which is
   // what it does on the host.
-  out = out.replace(LINK_TAG, tag => {
-    if (!/\brel=("|')stylesheet\1/i.test(tag)) return tag
-    const href = attribute(tag, 'href')
-    if (!href) return tag
-    return resolvePagePath(page, href) === SITE_STYLESHEET
-      ? `<style>\n${styles}\n</style>`
-      : tag
-  })
-
   if (knownPages) out = markLinks(out, page, knownPages)
 
   if (affordable) {

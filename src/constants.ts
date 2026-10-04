@@ -5,6 +5,8 @@ export const SITE_APP_SLUG = 'site'
 /** A site is a folder, and these are the names inside it. */
 export const SITE_PACKAGE_SUFFIX = '.site'
 export const SITE_MANIFEST_FILE = 'site.json'
+/** Durable collection definitions; build/ is generated output, never the only copy. */
+export const SITE_COLLECTIONS_FILE = 'collections.json'
 export const SITE_PAGES_DIR = 'pages'
 export const SITE_STYLESHEET = 'styles/site.css'
 export const SITE_ASSETS_DIR = 'assets'

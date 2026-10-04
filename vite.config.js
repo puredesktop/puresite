@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react-swc'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
@@ -20,7 +21,7 @@ export default defineConfig({
   plugins: [
     react({
       plugins: [
-        ['@swc/plugin-styled-components', { displayName: true, fileName: true }],
+        [createRequire(import.meta.url).resolve('@swc/plugin-styled-components'), { displayName: true, fileName: true }],
       ],
     }),
   ],
