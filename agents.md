@@ -236,7 +236,9 @@ store secrets or payment details in a collection.
 
 UI Create, scoped Ask and Describe prepare a saved request and dispatch to this
 tab’s drawer. prepareSite prepares a whole-site request without invoking a model
-or messaging this running drawer. Read getDrawerRequest, then compose here.
+or messaging this running drawer. It replies with the request identity only
+(requestId, baseHash, path, kind, status, counts), not the site. Read
+getDrawerRequest for the HTML, styles, guide and files, then compose here.
 commitDrawerRequest accepts requestId/baseHash plus pages (path-to-full-HTML),
 styles and optional title for a site draft, or only the selected pages for an
 edit. Shared styles, other pages and siblings outside an element selection are

@@ -24,6 +24,7 @@ import {
   getSiteContextHandler,
   getSiteMapHandler,
   insertElementHandler,
+  prepareSiteHandler,
   movePageHandler,
   readPageHandler,
   readStylesHandler,
@@ -60,11 +61,8 @@ export function usePureSiteAgentTools(
           await contextRef.current.cancelDrawerRequest(invoke.arguments ?? {}),
         ),
       }),
-      prepareSite: async invoke => ({
-        content: JSON.stringify(
-          await contextRef.current.prepareSite(invoke.arguments ?? {}),
-        ),
-      }),
+      prepareSite: async invoke =>
+        prepareSiteHandler(contextRef.current, invoke.arguments ?? {}),
       getDrawerRequest: async () => ({
         content: JSON.stringify(await contextRef.current.getDrawerRequest()),
       }),
