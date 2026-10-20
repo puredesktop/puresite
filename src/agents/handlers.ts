@@ -626,6 +626,40 @@ export function getSiteMapHandler(context: SiteAgentToolContext): AgentToolHandl
   }
 }
 
+/**
+ * What prepareSite reports: the saved request's identity and scope, not its
+ * contents. The request carries the whole site (every page, the stylesheet)
+ * plus the design guide and the file list — getDrawerRequest reads all of
+ * that back, so echoing it here only doubled it in the conversation.
+ */
+export function preparedRequestSummary(prepared: unknown): Record<string, unknown> {
+  const request = (prepared ?? {}) as Record<string, unknown>
+  const document = (request.document ?? {}) as { pages?: Record<string, string> }
+  const images = Array.isArray(request.images) ? request.images : []
+  return {
+    requestId: request.id,
+    path: request.path,
+    baseHash: request.baseHash,
+    kind: request.kind,
+    status: request.status,
+    ...(Array.isArray(request.pages) && request.pages.length ? { pages: request.pages } : {}),
+    ...(request.elementPath ? { elementPath: request.elementPath } : {}),
+    sitePages: Object.keys(document.pages ?? {}).length,
+    images: images.length,
+    nextAction:
+      'Call getDrawerRequest for the saved HTML, styles, design guide and files, compose, then commitDrawerRequest with this requestId and baseHash.',
+  }
+}
+
+export async function prepareSiteHandler(
+  context: SiteAgentToolContext,
+  args: Args,
+): Promise<AgentToolHandlerResult> {
+  return {
+    content: formatAgentToolJson(preparedRequestSummary(await context.prepareSite(args))),
+  }
+}
+
 /** Export drafts for review without invoking publish/build verification. */
 export async function exportPageHandler(context: SiteAgentToolContext, args: Args): Promise<AgentToolHandlerResult> {
   if (args.format !== 'pdf' && args.format !== 'png') throw new AgentSiteToolError('format must be pdf or png')
