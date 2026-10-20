@@ -33,7 +33,7 @@ import {
   type PromisedPage,
 } from '../lib/siteLinks'
 import { ASSET_ROLES, type MaterialItem } from '../lib/material'
-import { suggestedName, usedOn } from '../lib/assetNames'
+import { nameOf, suggestedName, usedOn } from '../lib/assetNames'
 import { draftState, draftSummary, liveUrlFor, stateOf } from '../lib/draftState'
 import { fetchLivePage } from '../bridge/platformBridge'
 import { readElement } from '../lib/pages'
@@ -45,6 +45,7 @@ import { siteNeedsData, type Collection, type DataProvider } from '../lib/siteDa
 import type { SiteSelection } from '../agents/catalog'
 import { verificationBadge, type SiteVerification } from '../lib/siteVerification'
 import { revisionLabel, type RevisionEntry } from '@purescience/platform-ui/editing/revisionHistory'
+import { assetRefs, collectionRefs, elementRefs, pageRefs, revisionRefs } from '../agentRefs'
 
 
 export function SiteBoardView({
@@ -217,6 +218,12 @@ export function SiteBoardView({
   },[viewport,frame.width,frame.height,onPreviewViewport])
 
   const html = document.pages[selectedPage] ?? ''
+  const selectedTitle = pages.find(page => page.path === selectedPage)?.title ?? selectedPage
+  const selectedRefs = pageRefs(
+    selectedPage,
+    selectedTitle,
+    document.manifest.pages.indexOf(selectedPage),
+  )
   const picked = selection?.page === selectedPage ? selection : null
   const pageFindings = findings.filter(finding => finding.page === selectedPage)
   // What the writing says the site is. The board, the map and the agent tools
@@ -380,7 +387,7 @@ export function SiteBoardView({
               </Hint>
             ) : null}
             {collections.map(collection => (
-              <DataCard key={collection.name}>
+              <DataCard key={collection.name} {...collectionRefs(collection.name)}>
                 <CardName>{collection.name}</CardName>
                 <Mono>
                   {collection.fields.length} field
@@ -444,7 +451,7 @@ export function SiteBoardView({
                   </GhostButton>
                 ) : null}
                 {material.map(item => (
-                  <FileRow key={item.name}>
+                  <FileRow key={item.name} {...assetRefs(item.name, nameOf(item))}>
                     {previews[item.name] ? (
                       <FileThumb src={previews[item.name]} alt="" />
                     ) : (
@@ -609,7 +616,7 @@ export function SiteBoardView({
 
         <Stage ref={stageRef}>
           {/* The viewport fills the stage; the page scrolls inside the iframe. */}
-          <StagePage data-video-drop-surface style={{ width: frame.width * zoom }}>
+          <StagePage data-video-drop-surface style={{ width: frame.width * zoom }} {...selectedRefs}>
             <PageFrame
               html={html}
               styles={document.styles}
@@ -720,7 +727,7 @@ export function SiteBoardView({
           <Faint>{urlPathFor(selectedPage)}</Faint>
         </RailHead>
 
-        <Field>
+        <Field {...selectedRefs}>
           <Label htmlFor="page-title">Page title</Label>
           <Input
             id="page-title"
@@ -765,7 +772,9 @@ export function SiteBoardView({
 
         {picked ? (
           <>
-            <SectionLabel>SELECTED · {picked.label}</SectionLabel>
+            <SectionLabel {...elementRefs(picked.path, picked.label || 'Selected element')}>
+              SELECTED · {picked.label}
+            </SectionLabel>
             <PickedControls
               html={html}
               picked={picked}
@@ -843,7 +852,7 @@ export function SiteBoardView({
             {revisions.map(entry => {
               const label = revisionLabel(entry, historyNow)
               return (
-                <HistoryRow key={entry.file}>
+                <HistoryRow key={entry.file} {...revisionRefs(entry.file, label)}>
                   <HistoryLabel title={`${entry.file} · ${entry.textChars} text chars`}>
                     {label}
                   </HistoryLabel>
@@ -884,6 +893,7 @@ export function SiteBoardView({
             {material.map(item => (
               <AssetChip
                 key={item.name}
+                {...assetRefs(item.name, nameOf(item))}
                 type="button"
                 title={item.reference}
                 onClick={() =>

@@ -10,6 +10,7 @@ import { revisionLabel, type RevisionEntry } from '@purescience/platform-ui/edit
 const THUMB_WIDTH = 150
 import type { PromisedPage, SiteLinkGraph } from '../lib/siteLinks'
 import { titleFromPage, urlPathFor, type SiteDocument } from '../lib/siteDocument'
+import { pageRefs, revisionRefs } from '../agentRefs'
 
 /**
  * The site as its links draw it.
@@ -305,6 +306,7 @@ export function SiteMapOverlay({
           {map.nodes.map(node => (
             <Node
               key={node.path}
+              {...pageRefs(node.path, label(node), siteDocument.manifest.pages.indexOf(node.path))}
               type="button"
               style={{ left: node.x, top: node.y }}
               $kind={node.kind}
@@ -386,6 +388,7 @@ export function SiteMapOverlay({
                 {[...revisions].reverse().map(entry => (
                   <button
                     key={entry.file}
+                    {...revisionRefs(entry.file, revisionLabel(entry, Date.now()))}
                     type="button"
                     title={`${revisionLabel(entry, Date.now())} — put the site back into this shape`}
                     onClick={() => onRestoreRevision(entry.file)}
