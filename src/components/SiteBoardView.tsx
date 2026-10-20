@@ -45,7 +45,7 @@ import { siteNeedsData, type Collection, type DataProvider } from '../lib/siteDa
 import type { SiteSelection } from '../agents/catalog'
 import { verificationBadge, type SiteVerification } from '../lib/siteVerification'
 import { revisionLabel, type RevisionEntry } from '@purescience/platform-ui/editing/revisionHistory'
-import { assetRefs, collectionRefs, elementRefs, pageRefs, revisionRefs } from '../agentRefs'
+import { assetRefs, collectionRefs, elementRefs, pageRefs, revisionRefs, withOpenSurface } from '../agentRefs'
 
 
 export function SiteBoardView({
@@ -616,7 +616,7 @@ export function SiteBoardView({
 
         <Stage ref={stageRef}>
           {/* The viewport fills the stage; the page scrolls inside the iframe. */}
-          <StagePage data-video-drop-surface style={{ width: frame.width * zoom }} {...selectedRefs}>
+          <StagePage data-video-drop-surface style={{ width: frame.width * zoom }} {...withOpenSurface(selectedRefs)}>
             <PageFrame
               html={html}
               styles={document.styles}
