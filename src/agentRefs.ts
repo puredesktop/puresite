@@ -62,3 +62,11 @@ export function revisionRefs(file: string, label: string): AgentRefProps {
 export function elementRefs(path: string, label: string): AgentRefProps {
   return props([`path:${path}`, `beforePath:${path}`, `afterPath:${path}`], label)
 }
+
+/**
+ * The open surface: a write call that names no tagged item is drawn on the
+ * element carrying `@open` (the stage page showing the open page).
+ */
+export function withOpenSurface(refs: AgentRefProps): AgentRefProps {
+  return props([...refs['data-agent-ref'].split(' '), '@open'], refs['data-agent-label'])
+}
