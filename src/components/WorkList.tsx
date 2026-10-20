@@ -6,6 +6,7 @@ import { urlPathFor, type SiteDocument } from '../lib/siteDocument'
 import type { CheckFinding } from '../lib/buildSite'
 import { nameOf } from '../lib/assetNames'
 import type { MaterialItem } from '../lib/material'
+import { pageRefs } from '../agentRefs'
 
 /**
  * What the site still owes, in one list.
@@ -107,7 +108,7 @@ export function WorkList({
                 ) : null}
               </Group>
               {graph.promised.map(promise => (
-                <Row key={promise.path}>
+                <Row key={promise.path} {...pageRefs(promise.path, promise.title)}>
                   <div className="what">
                     <span className="name">{promise.title}</span>
                     <span className="detail">
