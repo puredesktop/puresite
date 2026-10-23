@@ -14,6 +14,7 @@ import type { PreviewViewport } from './lib/previewViewport'
  * whichever deploy tool is configured.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLiveJson } from '@purescience/platform-ui/editing/live/useLiveJson'
 import {
   compositionFor,
   recoverableSite,
@@ -379,6 +380,26 @@ export function App(): React.ReactElement {
   const lifecycleRef = useRef(lifecycle)
   lifecycleRef.current = lifecycle
 
+  // A site the organisation shares, edited live (useLiveJson): everyone's pages merged page by page; the live copy
+  // writes the site's files, so this tab stops saving them itself while live.
+  const liveSitePath = lifecycle.doc.path ? `${lifecycle.doc.path}/site.json` : null
+  const liveSite = useLiveJson(liveSitePath, {
+    loadSaved: async () => JSON.parse(JSON.stringify(documentRef.current)) as Record<string, unknown>,
+    onRemote: next => {
+      const doc = next as unknown as SiteDocument
+      setDocument(doc)
+      documentRef.current = doc
+      boundDocumentRef.current = doc
+      hashRef.current = siteHash(doc)
+    },
+    serialize: () => {
+      const root = lifecycle.doc.path
+      return root ? { resourcePath: root, files: serializeSitePackage(boundDocumentRef.current, materialRef.current).filter(file => !file.name.endsWith('/.keep')).map(file => ({ name: file.name, content: String(file.content) })) } : null
+    },
+  })
+  const liveSiteRef = useRef(liveSite)
+  liveSiteRef.current = liveSite
+
   /**
    * Revision history: the whole site as one JSON per snapshot, in the
    * package's history/. The kit's store owns the index, the in-flight
@@ -457,7 +478,9 @@ export function App(): React.ReactElement {
       // that is open, and it is the one being saved.
       boundDocumentRef.current = outcome.content
       hashRef.current = outcome.hash
-      lifecycleRef.current.markDirty()
+      // Live: the change goes to everyone, and the live copy writes the site when it is time.
+      if (liveSiteRef.current.status === 'on') liveSiteRef.current.write(JSON.parse(JSON.stringify(outcome.content)) as Record<string, unknown>)
+      else lifecycleRef.current.markDirty()
       return { ...outcome, snapshot, warning }
     },
     [history],
