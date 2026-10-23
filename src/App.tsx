@@ -396,6 +396,8 @@ export function App(): React.ReactElement {
       const root = lifecycle.doc.path
       return root ? { resourcePath: root, files: serializeSitePackage(boundDocumentRef.current, materialRef.current).filter(file => !file.name.endsWith('/.keep')).map(file => ({ name: file.name, content: String(file.content) })) } : null
     },
+    // Let go by the live copy: the site on screen is saved as it always was, so a page edited just before is kept.
+    onEnded: () => lifecycleRef.current.markDirty(),
   })
   const liveSiteRef = useRef(liveSite)
   liveSiteRef.current = liveSite
