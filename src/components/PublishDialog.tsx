@@ -12,6 +12,7 @@
  * The byte upload is why publishing is not purely a tool call: a presigned
  * PUT carries the file itself, and every MyTools body is JSON.
  */
+import { isPersonGesture } from '@purescience/platform-ui/release/gesture'
 import { useMemo, useState } from 'react'
 import { styled } from 'styled-components'
 import { hasBlockingFinding, type BuildResult, type CheckFinding } from '../lib/buildSite'
@@ -359,7 +360,15 @@ export function PublishDialog({
               <GhostButton type="button" onClick={onBuild}>
                 Build again
               </GhostButton>
-              <PrimaryButton type="button" disabled={!service} onClick={onSend}>
+              <PrimaryButton
+                type="button"
+                data-release="publish"
+                disabled={!service}
+                // Only a person's own press publishes (#1017): a scripted click is ignored.
+                onClick={event => {
+                  if (isPersonGesture(event)) onSend()
+                }}
+              >
                 {state.phase === 'live'
                   ? 'Publish again'
                   : service
