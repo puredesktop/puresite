@@ -1,3 +1,4 @@
+import { DesignBriefImport } from '@purescience/platform-ui/components/common/documents/DesignBriefImport'
 /**
  * Starting a site, as four questions instead of a screen.
  *
@@ -123,6 +124,7 @@ export function NewSiteWizard({
           />
         </Field>
 
+        <DesignBriefImport value={brief} target="site" disabled={busy} onImport={value => onBrief(value)} />
         <Field>
           <Label>Files</Label>
           {material.length ? (
