@@ -105,6 +105,7 @@ import { siteDesignGuide, type ReferenceImage } from './lib/draftSite'
 import { mapConcurrent, readSitePackage, serializeSitePackage } from './lib/packageIO'
 import { siteFontFiles } from './lib/siteFoundation'
 import { collectLayout, type LayoutRead } from './lib/responsiveCheck'
+import { measurePage, readPageOutline } from './lib/hiddenMeasure'
 import { SITE_FONT_URLS } from './fonts/siteFonts'
 import {
   DEFAULT_SERVICE_ID,
@@ -141,8 +142,6 @@ import {
   EMPTY_REVISION_INDEX,
   createRevisionHistory,
   ensureExportable,
-  fontsStatusOf,
-  mountMeasuringFrame,
   preservationWarning,
   renderFingerprint,
   revisionLabel,
@@ -1415,9 +1414,10 @@ export function App(): React.ReactElement {
 
   /**
    * Measure every page whose evidence is stale, in the kit's measuring
-   * frame — on-screen but invisible, waited on for fonts, and answering
-   * `dead` instead of zeros when the host is hidden. One run at a time; a
-   * change during a run queues another.
+   * frame — on-screen but invisible, waited on for fonts — or, while
+   * PureSite is hidden and its frames lay nothing out, in the shell's
+   * measuring window at the same viewport. One run at a time; a change
+   * during a run queues another.
    */
   const measureRunRef = useRef<Promise<void> | null>(null)
   const measureAgainRef = useRef(false)
@@ -1429,8 +1429,6 @@ export function App(): React.ReactElement {
     const run = (async () => {
       do {
         measureAgainRef.current = false
-        // A hidden host lays nothing out; every page would measure dead.
-        if (window.document.visibilityState === 'hidden') break
         const current = documentRef.current
         const box = previewBoxRef.current
         const fingerprint = fingerprintFor(box)
@@ -1456,11 +1454,12 @@ export function App(): React.ReactElement {
             assets: previewsRef.current,
             page,
           })
-          const mounted = await mountMeasuringFrame(srcdoc, {
-            width: box.width,
-            height: box.height,
-            timeoutMs: 4000,
-          })
+          const measured = await measurePage(
+            srcdoc,
+            { width: box.width, height: box.height, timeoutMs: 4000 },
+            readPageOutline,
+            null,
+          )
           let next: PageEvidence = {
             page,
             measured: false,
@@ -1471,29 +1470,15 @@ export function App(): React.ReactElement {
             height: 0,
             at: Date.now(),
           }
-          if (mounted.ok) {
-            const frame = mounted.frame
-            const read = frame.measure(doc => {
-              const root = doc.documentElement
-              return {
-                height: root.scrollHeight,
-                // Wider than the viewport it was given: a sideways scroll
-                // at this width, which no page here is allowed.
-                overflowX: root.scrollWidth > root.clientWidth + 1,
-                fontsStatus: fontsStatusOf(doc),
-              }
-            }, frame.document.documentElement)
-            if (read.ok) {
-              next = {
-                ...next,
-                measured: true,
-                ...read.value,
-                fontsStatus: frame.fontsLoaded
-                  ? read.value.fontsStatus
-                  : 'loading',
-              }
+          if (measured.ok) {
+            next = {
+              ...next,
+              measured: true,
+              ...measured.value,
+              fontsStatus: measured.fontsLoaded
+                ? measured.value.fontsStatus
+                : 'loading',
             }
-            frame.dispose()
           }
           evidenceRef.current = { ...evidenceRef.current, [page]: next }
           setEvidence(evidenceRef.current)
@@ -1945,14 +1930,9 @@ export function App(): React.ReactElement {
         const out: { width: number; read: LayoutRead | null; why?: string }[] = []
         for (const width of widths) {
           const srcdoc = previewDocument({ html: current.pages[page] ?? '', styles: current.styles, assets: previewsRef.current, page })
-          const mounted = await mountMeasuringFrame(srcdoc, { width, height: Math.round(width * 1.9), timeoutMs: 6000 })
-          if (!mounted.ok) {
-            out.push({ width, read: null, why: `the page did not load (${mounted.reason})` })
-            continue
-          }
-          const read = mounted.frame.measure((doc, win) => collectLayout(doc, win, width), mounted.frame.document.body)
-          mounted.frame.dispose()
-          out.push(read.ok ? { width, read: read.value } : { width, read: null, why: 'PureSite is hidden, so nothing could be measured: bring it on screen and check again' })
+          // On screen in the measuring frame; hidden, in the shell's own window at the same width.
+          const measured = await measurePage(srcdoc, { width, height: Math.round(width * 1.9), timeoutMs: 6000 }, collectLayout, width)
+          out.push(measured.ok ? { width, read: measured.value } : { width, read: null, why: measured.why })
         }
         return out
       },
