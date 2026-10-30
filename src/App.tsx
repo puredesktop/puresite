@@ -24,7 +24,7 @@ import {
   assertDescriptionScope,
   type DrawerRequest,
 } from './lib/drawerRequest'
-import { messages, sessions } from '@purescience/platform-ui/bridge/assistants'
+import { messages, sessions, vision } from '@purescience/platform-ui/bridge/assistants'
 import {
   updateCurrentWorkspaceTab,
   toggleAgentDrawer,
@@ -115,6 +115,7 @@ import {
   AgentSiteToolError,
   type AgentBase,
   type AgentLanded,
+  type SiteAgentToolContext,
   type SiteSelection,
 } from './agents/catalog'
 import {
@@ -1862,6 +1863,44 @@ export function App(): React.ReactElement {
           })
         }),
       setAssetRole,
+      brandFiles: {
+        readText: readTextFile,
+        readBase64: async (path: string) => {
+          const read = await readBinaryBase64(path)
+          return { base64: read.base64, mimeType: read.mimeType ?? '' }
+        },
+        copyIn: async (from: string, name: string) => {
+          const root = boundPathRef.current
+          if (!root) throw new Error('there is no site open')
+          const read = await readBinaryBase64(from)
+          try {
+            await createFolder(root, SITE_ASSETS_DIR)
+          } catch {
+            /* already there */
+          }
+          await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${name}`, read.base64)
+        },
+        writeAsset: async (name: string, base64: string) => {
+          const root = boundPathRef.current
+          if (!root) throw new Error('there is no site open')
+          try {
+            await createFolder(root, SITE_ASSETS_DIR)
+          } catch {
+            /* already there */
+          }
+          await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${name}`, base64)
+        },
+        refresh: async () => {
+          const root = boundPathRef.current
+          if (root) await loadMaterial(root, notesFrom(materialRef.current))
+        },
+      },
+      generateImage: bridge.getMethods?.().includes(PLATFORM_BRIDGE_METHODS.ASSISTANTS_VISION_GENERATE)
+        ? async (request: Parameters<NonNullable<SiteAgentToolContext['generateImage']>>[0]) => {
+            const made = await vision.generate(request)
+            return { base64: made.base64, mimeType: made.mimeType, modelId: made.modelId }
+          }
+        : null,
       restoreRevision,
       checkSite: () =>
         findingsFor(
@@ -1888,6 +1927,7 @@ export function App(): React.ReactElement {
     selection,
     serviceId,
     setAssetRole,
+    loadMaterial,
     verification,
   ])
 
