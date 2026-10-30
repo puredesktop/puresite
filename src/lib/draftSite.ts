@@ -83,10 +83,16 @@ the page is in scale at 390, 768 and 1280:
   Plex Mono — and it is self-hosted in the package automatically. Never link a
   font CDN.
 
-Copy: headlines and section heads come from the brief's own claims and words,
-not lines of your own. Keep the hero headline short (about 45 characters at
-most) so it sets in two or three lines on a phone. Hold one alignment for
-section headings down the page (the hero may be centred).
+Copy (the suite's copy rule, "Copy comes from the brief"): when the brief gives
+claims or copy, every headline, subhead, card and call to action quotes a claim
+or restates it closely, with no new facts, numbers, customers or capabilities
+and no lines of your own. Never reuse the reference's own headline or taglines
+unless the brief says to: a reference is for the look, not the words. No
+filler: every card carries a real claim or is removed, never only a label. A
+punchy cut of a claim is fine when it means the same. Keep the hero headline
+short (about 45 characters at most) so it sets in two or three lines on a
+phone. Hold one alignment for section headings down the page (the hero may be
+centred).
 
 Art: when the reference has a recurring graphic idea — glowing nodes and lines,
 a grain, a light field, hero or conceptual art — it is GENERATED with makeImage
@@ -97,7 +103,9 @@ model.
 
 After committing: checkSite, then checkResponsive at 390 and 768 and fix every
 finding, then exportPage png at 390 and look at it with view_image beside the
-reference. Keep fixing until it is clean.`
+reference. Keep fixing until it is clean. Act on its copyNotes too. Last, list
+each claim-bearing line next to the claim it comes from, and fix any line that
+has none.`
 
 const LOOKS: Record<string, string> = {
   auto: `LOOK — read it off the attached files. A design reference wins: take
