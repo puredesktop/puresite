@@ -11,7 +11,7 @@ import { formatAgentToolJson } from '@purescience/platform-ui/bridge/agentToolHe
 import type { AgentToolHandlerResult } from '@purescience/platform-ui/bridge/react/usePlatformAgentTools'
 import { parseDesignSystem } from '@purescience/platform-ui/design/brief'
 import { brandAssets, brandBlock, withBrandBlock } from '../lib/brandStyles'
-import { analyseLayout } from '../lib/responsiveCheck'
+import { analyseLayout, copyNotes } from '../lib/responsiveCheck'
 import { AgentSiteToolError, type SiteAgentToolContext } from './catalog'
 
 type Args = Record<string, unknown>
@@ -115,11 +115,17 @@ export async function checkResponsiveHandler(context: SiteAgentToolContext, args
     }
   })
   const clean = results.every(result => 'clean' in result && result.clean)
+  // Copy advice from the first width measured: the cards hold the same words at every width. Never part of clean.
+  const firstRead = measured.find(({ read }) => read)?.read
+  const notes = firstRead ? copyNotes(firstRead) : []
   return {
     content: formatAgentToolJson({
       page,
       clean,
       results,
+      ...(notes.length
+        ? { copyNotes: notes.map(({ code, message, fix }) => ({ code, message, fix })), copyAdvice: 'Advice, not part of clean: the words come from the brief.' }
+        : {}),
       next: clean
         ? 'Now exportPage with format png at width 390 and look at it with view_image: the numbers do not see everything.'
         : 'Fix every finding in styles/site.css (the foundation tokens: --gutter, --space-*, --step-*), then run checkResponsive again until it is clean, then exportPage png at 390 and look at it with view_image.',

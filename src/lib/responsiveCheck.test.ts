@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analyseLayout, type TextBox } from './responsiveCheck'
+import { analyseLayout, collectLayout, copyNotes, type TextBox } from './responsiveCheck'
 
 const box = (over: Partial<TextBox>): TextBox => ({
   label: 'p', text: 'Words', left: 24, right: 366, top: 0, bottom: 20, fontSize: 16, lines: 1, align: 'left', letterSpacingEm: 0, kind: 'text', ...over,
@@ -44,5 +44,53 @@ describe('the mobile check', () => {
 
   it('reports sideways scrolling', () => {
     expect(analyseLayout({ width: 390, scrollWidth: 520, boxes: [] })[0].code).toBe('sideways-scroll')
+  })
+})
+
+describe('the copy notes', () => {
+  const read = (boxes: TextBox[]) => ({ width: 390, scrollWidth: 390, boxes })
+  const card = (text: string, over: Partial<TextBox> = {}) => box({ kind: 'card', text, top: 400, bottom: 520, ...over })
+
+  it('names cards that hold only a word or two, apart from the layout findings', () => {
+    const page = read([card('01 Shape'), card('Learn'), card('Roll out'), card('Review Editors check every change before it ships.')])
+    expect(copyNotes(page)).toEqual([
+      {
+        code: 'thin-card',
+        message: '3 cards hold only a word or two ("01 Shape", "Learn", "Roll out")',
+        fix: expect.stringMatching(/claim from the brief/),
+      },
+    ])
+    // Advice only: the page is still clean for the mobile check.
+    expect(analyseLayout(page)).toEqual([])
+  })
+
+  it('leaves stat cards, picture cards, pills, bands and the header alone', () => {
+    expect(
+      copyNotes(
+        read([
+          card('80% faster'),
+          card('Acme', { media: true }),
+          card('New', { right: 90, bottom: 430 }),
+          card('Welcome', { left: 0, right: 390, fullBleed: true }),
+          card('Menu', { chrome: true }),
+          card(''),
+        ]),
+      ),
+    ).toEqual([])
+  })
+
+  it('reads a picture and the chrome from the page', () => {
+    const doc = new DOMParser().parseFromString(
+      '<header><div style="background: #eee"><a href="/">Menu</a></div></header><main><div class="card" style="background: #eee"><img src="a.png"><p>Acme</p></div><div class="card" style="background: #eee"><h3>Shape</h3></div></main>',
+      'text/html',
+    )
+    const win = { getComputedStyle: (element: Element) => ({ visibility: 'visible', display: 'block', fontSize: '16px', letterSpacing: 'normal', textAlign: 'left', backgroundColor: (element as HTMLElement).style?.background ? 'rgb(238, 238, 238)' : 'rgba(0, 0, 0, 0)', borderLeftWidth: '0px', borderTopWidth: '0px' }), scrollY: 0 } as unknown as Window
+    for (const element of doc.querySelectorAll('*')) (element as HTMLElement).getBoundingClientRect = () => ({ left: 24, right: 366, top: 0, bottom: 120, width: 342, height: 120 }) as DOMRect
+    const cards = collectLayout(doc, win, 390).boxes.filter(b => b.kind === 'card')
+    expect(cards.map(c => [c.text, !!c.media, !!c.chrome])).toEqual([
+      ['Menu', false, true],
+      ['Acme', true, false],
+      ['Shape', false, false],
+    ])
   })
 })
