@@ -174,27 +174,29 @@ export function analyseLayout(read: LayoutRead, limits: LayoutLimits = limitsFor
   return findings
 }
 
-/** Distinct line boxes an element's text occupies. */
-function lineCount(doc: Document, element: Element): number {
-  const range = doc.createRange()
-  range.selectNodeContents(element)
-  const tops: number[] = []
-  for (const rect of Array.from(range.getClientRects())) {
-    if (rect.width < 1 || rect.height < 1) continue
-    if (!tops.some(top => Math.abs(top - rect.top) < rect.height * 0.5)) tops.push(rect.top)
-  }
-  return Math.max(tops.length, element.textContent?.trim() ? 1 : 0)
-}
-
-const BUTTONISH = 'button, .button, .btn, [class*="button"], a[role="button"], input[type="submit"]'
-
-function label(element: Element): string {
-  const cls = element.getAttribute('class')?.trim().split(/\s+/)[0]
-  return `${element.tagName.toLowerCase()}${cls ? `.${cls}` : ''}`
-}
-
-/** Read the rendered page's text, buttons, cards and media: what analyseLayout needs. */
+/**
+ * Read the rendered page's text, buttons, cards and media: what analyseLayout
+ * needs. It runs in PureSite's measuring frame and, when PureSite is hidden,
+ * in the shell's measuring window, so it is self-contained: everything it
+ * uses is an argument, a browser global or defined inside it.
+ */
 export function collectLayout(doc: Document, win: Window, width: number): LayoutRead {
+  /** Distinct line boxes an element's text occupies. */
+  const lineCount = (element: Element): number => {
+    const range = doc.createRange()
+    range.selectNodeContents(element)
+    const tops: number[] = []
+    for (const rect of Array.from(range.getClientRects())) {
+      if (rect.width < 1 || rect.height < 1) continue
+      if (!tops.some(top => Math.abs(top - rect.top) < rect.height * 0.5)) tops.push(rect.top)
+    }
+    return Math.max(tops.length, element.textContent?.trim() ? 1 : 0)
+  }
+  const BUTTONISH = 'button, .button, .btn, [class*="button"], a[role="button"], input[type="submit"]'
+  const label = (element: Element): string => {
+    const cls = element.getAttribute('class')?.trim().split(/\s+/)[0]
+    return `${element.tagName.toLowerCase()}${cls ? `.${cls}` : ''}`
+  }
   const boxes: TextBox[] = []
   const body = doc.body
   const sections = Array.from(body.querySelectorAll(':scope > section, :scope > main > section, :scope > main > *, :scope > header, :scope > footer'))
@@ -220,7 +222,7 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
       top: rect.top + win.scrollY,
       bottom: rect.bottom + win.scrollY,
       fontSize,
-      lines: kind === 'card' || kind === 'media' ? 0 : lineCount(doc, element),
+      lines: kind === 'card' || kind === 'media' ? 0 : lineCount(element),
       align: style.textAlign === 'start' || style.textAlign === 'left' || style.textAlign === 'justify' ? 'left' : style.textAlign,
       letterSpacingEm: tracking / fontSize,
       kind,
