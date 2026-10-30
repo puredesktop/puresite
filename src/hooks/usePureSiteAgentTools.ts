@@ -5,7 +5,7 @@
  * running sees the site as it is now rather than as it was when the drawer
  * opened.
  */
-import { makeImageHandler, useBrandHandler } from '../agents/brandTools'
+import { checkResponsiveHandler, makeImageHandler, useBrandHandler } from '../agents/brandTools'
 import { useRef } from 'react'
 import { usePlatformAgentTools } from '@purescience/platform-ui/bridge/react/usePlatformAgentTools'
 import {
@@ -57,6 +57,7 @@ export function usePureSiteAgentTools(
     errorType: AgentSiteToolError,
     handlers: {
       exportPage: async invoke => exportPageHandler(contextRef.current, invoke.arguments ?? {}),
+      checkResponsive: async invoke => checkResponsiveHandler(contextRef.current, invoke.arguments ?? {}),
       cancelDrawerRequest: async invoke => ({
         content: JSON.stringify(
           await contextRef.current.cancelDrawerRequest(invoke.arguments ?? {}),

@@ -45,6 +45,7 @@ export const PURESITE_AGENT_TOOLS = [
   'saveSite',
   'buildSite',
   'exportPage',
+  'checkResponsive',
   'listCollections',
   'setCollection',
   'deleteCollection',
@@ -89,6 +90,8 @@ export interface AgentLanded {
 
 export interface SiteAgentToolContext {
   exportPage: (input: { format: 'pdf' | 'png'; page?: string; width?: number }) => Promise<unknown>
+  /** Render a page at each width and measure it (responsiveCheck.ts); null for a width that could not be measured. */
+  checkResponsive: (page: string, widths: number[]) => Promise<{ width: number; read: import('../lib/responsiveCheck').LayoutRead | null; why?: string }[]>
 
   prepareSite: (args: Record<string, unknown>) => Promise<unknown>
   cancelDrawerRequest: (args: Record<string, unknown>) => Promise<unknown>

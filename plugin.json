@@ -80,6 +80,28 @@
           "requiresApproval": true
         },
         {
+          "name": "checkResponsive",
+          "description": "Measure a page at phone and tablet widths (default 390 and 768): buttons whose text wraps or overflows, the headline's line count (at most 3), elements closer than 16px (24px on tablets) to the screen edge, text under 14px, empty vertical bands, section headings that switch between centred and left, headings tracked tighter than -0.035em, and sideways scrolling. Run it after every draft or stylesheet change and fix every finding, then export a PNG at 390 and look at it with view_image before calling the site done. PureSite must be on screen for the measurement.",
+          "risk": "read",
+          "requiresApproval": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "string"
+              },
+              "widths": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 320,
+                  "maximum": 1920
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "cancelDrawerRequest",
           "risk": "destructive",
           "description": "Cancel the saved pending request by ID. Subsequent commits are refused. Does not undo a completed save.",
@@ -537,7 +559,7 @@
         },
         {
           "name": "makeImage",
-          "description": "Generate a picture for the site with the desktop's image model (best quality): the brand's motif or texture (a network of glowing nodes, a grain, a light field), hero or conceptual art. This is the default for any such art in a reference: never imitate it with CSS shapes or SVG line art. SVG or CSS is only a fallback when this tool reports no image model, or for exact diagrams and charts. Prompt from the reference (what it is, its light, density, colours, the brand palette as hex); pass reference (an asset name or absolute path) so the model matches it. Background art is asked for wide and calm with quiet areas for text and no text in it. Saved as assets/<name>.png; the picture comes back so you can judge it. Reuse one motif across the site.",
+          "description": "Generate a picture for the site with the desktop's image model (best quality): the brand's motif or texture (a network of glowing nodes, a grain, a light field), hero or conceptual art. Required whenever the reference has such art — call it BEFORE composing the page (before prepareSite or writeStyles), then use the file in the stylesheet: never imitate it with CSS shapes or SVG line art. SVG or CSS is only a fallback when this tool reports no image model, or for exact diagrams and charts. Prompt from the reference (what it is, its light, density, colours, the brand palette as hex); pass reference (an asset name or absolute path) so the model matches it. Background art is asked for wide and calm with quiet areas for text and no text in it. Saved as assets/<name>.png; the picture comes back so you can judge it. Reuse one motif across the site.",
           "inputSchema": {
             "type": "object",
             "properties": {
