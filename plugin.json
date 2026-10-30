@@ -81,7 +81,7 @@
         },
         {
           "name": "checkResponsive",
-          "description": "Measure a page at phone and tablet widths (default 390 and 768): buttons whose text wraps or overflows, the headline's line count (at most 3), elements closer than 16px (24px on tablets) to the screen edge, text under 14px, empty vertical bands, section headings that switch between centred and left, headings tracked tighter than -0.035em, and sideways scrolling. Run it after every draft or stylesheet change and fix every finding, then export a PNG at 390 and look at it with view_image before calling the site done. PureSite must be on screen for the measurement.",
+          "description": "Measure a page at phone and tablet widths (default 390 and 768): buttons whose text wraps or overflows, the headline's line count (at most 3), elements closer than 16px (24px on tablets) to the screen edge, text under 14px, empty vertical bands, section headings that switch between centred and left, headings tracked tighter than -0.035em, and sideways scrolling. It also returns copyNotes (advice, never part of clean) for cards holding only a word or two: give each a claim from the brief or remove it. Run it after every draft or stylesheet change and fix every finding, then export a PNG at 390 and look at it with view_image before calling the site done. PureSite must be on screen for the measurement.",
           "risk": "read",
           "requiresApproval": false,
           "inputSchema": {

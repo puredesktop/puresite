@@ -206,7 +206,29 @@ the site is made in THAT look, unmistakably. The method is the suite's shared
    again.
 6. **Headlines from the claims.** Headlines and section heads use the brief's
    own claims and words, not lines of your own; the hero headline stays short
-   (about 45 characters) so it sets in two or three lines on a phone.
+   (about 45 characters) so it sets in two or three lines on a phone. See
+   "The words come from the brief" below.
+
+## The words come from the brief
+
+When the brief gives claims or copy, the site's words are the client's. The
+rule is the suite's shared **Copy comes from the brief**, section 8 of the
+**Matching a house style** skill (`read_skill`); in short:
+
+- Every headline, subhead, card and call to action quotes a claim from the
+  brief or restates it closely: no new facts, numbers, customers or
+  capabilities, and no slogans of your own ("Start together. Learn. Roll
+  out.").
+- A reference is for the look, not the words. Never reuse its headline or
+  taglines ("Move research into publication with less manual work.") unless
+  the brief says to, even though you read them off the reference.
+- No filler. A card carries a real claim or is removed; never a card with
+  only a label ("Work on the text"). A punchy cut of a claim is fine when it
+  means the same.
+- Before finishing, list each claim-bearing line next to the claim it comes
+  from (in your reply), and fix any line that has none. `checkResponsive`
+  adds `copyNotes` for cards holding only a word or two: advice, never part
+  of `clean`.
 
 ## The organisation's house style
 

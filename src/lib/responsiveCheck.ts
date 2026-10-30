@@ -32,6 +32,10 @@ export interface TextBox {
   fullBleed?: boolean
   /** The section it belongs to, by order. */
   section?: number
+  /** A card holding a picture (an image, video or svg): its words may be a caption. */
+  media?: boolean
+  /** Inside the header, the nav or the footer: chrome, not copy. */
+  chrome?: boolean
 }
 
 export interface LayoutRead {
@@ -174,6 +178,45 @@ export function analyseLayout(read: LayoutRead, limits: LayoutLimits = limitsFor
   return findings
 }
 
+/** A card with this many words or fewer holds a label, not a claim. */
+export const THIN_CARD_WORDS = 2
+
+export interface CopyNote {
+  code: 'thin-card'
+  message: string
+  fix: string
+}
+
+/**
+ * Advice from the suite's copy rule (the words come from the brief): cards
+ * holding only a word or two are filler. Kept apart from the layout findings,
+ * so it never stops checkResponsive reporting clean; it is advice, not a block.
+ */
+export function copyNotes(read: LayoutRead): CopyNote[] {
+  const seen = new Set<string>()
+  const thin = read.boxes.filter(box => {
+    if (box.kind !== 'card' || box.fullBleed || box.media || box.chrome) return false
+    // A pill or a tag is not a card.
+    if (box.right - box.left < 120 || box.bottom - box.top < 48) return false
+    const text = box.text.replace(/\s+/g, ' ').trim()
+    const words = text.split(' ').filter(word => /\p{L}/u.test(word))
+    // A figure ("80%", "3×", "$1.2m") makes a stat card; a bare "01" is only its number.
+    const figure = text.split(' ').some(token => /\d/.test(token) && !/^\d{1,2}[.):]?$/.test(token))
+    if (!words.length || words.length > THIN_CARD_WORDS || figure || seen.has(text)) return false
+    seen.add(text)
+    return true
+  })
+  if (!thin.length) return []
+  const shown = thin.slice(0, 3).map(box => `"${clip(box.text, 40)}"`).join(', ') + (thin.length > 3 ? ', …' : '')
+  return [
+    {
+      code: 'thin-card',
+      message: thin.length === 1 ? `a card holds only ${shown}` : `${thin.length} cards hold only a word or two (${shown})`,
+      fix: "every card carries a claim from the brief (quoted, closely restated, or cut short with the same meaning), or it is removed. Read Copy comes from the brief in the Matching a house style skill",
+    },
+  ]
+}
+
 /**
  * Read the rendered page's text, buttons, cards and media: what analyseLayout
  * needs. It runs in PureSite's measuring frame and, when PureSite is hidden,
@@ -247,7 +290,14 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
     const style = win.getComputedStyle(element)
     const filled = style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent'
     const bordered = Number.parseFloat(style.borderLeftWidth) > 0 || Number.parseFloat(style.borderTopWidth) > 0
-    if ((filled || bordered) && element.textContent?.trim()) add(element, 'card')
+    if ((filled || bordered) && element.textContent?.trim()) {
+      add(element, 'card')
+      const card = boxes[boxes.length - 1]
+      if (card?.kind === 'card' && seen.has(element)) {
+        if (element.querySelector('img, video, picture, svg, canvas')) card.media = true
+        if (element.closest('header, nav, footer')) card.chrome = true
+      }
+    }
   })
   return { width, scrollWidth: doc.documentElement.scrollWidth, boxes }
 }
