@@ -83,6 +83,11 @@ the page is in scale at 390, 768 and 1280:
   Plex Mono — and it is self-hosted in the package automatically. Never link a
   font CDN.
 
+A brand block (between the brand:start and brand:end comments, after the
+foundation) means the site is in that brand: keep it exactly as it is, write
+the rest of the stylesheet with its --brand-* properties, and say which brand
+you used. Its reference images are attached; look at them first.
+
 Copy: headlines and section heads come from the brief's own claims and words,
 not lines of your own. Keep the hero headline short (about 45 characters at
 most) so it sets in two or three lines on a phone. Hold one alignment for
@@ -100,6 +105,11 @@ finding, then exportPage png at 390 and look at it with view_image beside the
 reference. Keep fixing until it is clean.`
 
 const LOOKS: Record<string, string> = {
+  house: `LOOK — the organisation's house style. The stylesheet already carries
+its brand block (--brand-* colours, type, radius, motif) and its sample images
+are attached as references: look at them first, design in that brand before
+any preset, compare your render with the samples, and say which brand you used.
+A reference or an instruction in the brief still wins.`,
   auto: `LOOK — read it off the attached files. A design reference wins: take
 its palette, type, weight and spacing and write the site in that language.
 Failing that, take the colours from a logo. With nothing to read, choose one

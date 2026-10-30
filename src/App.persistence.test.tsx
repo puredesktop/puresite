@@ -8,13 +8,14 @@ const mocks = vi.hoisted(() => ({
   writes: [] as { path: string; files: { name: string; content: string }[] }[],
   read: vi.fn(), list: vi.fn(), binary: vi.fn(), flush: vi.fn(), adopt: vi.fn(),
   chooseFolder: vi.fn(), registerFolder: vi.fn(),
+  draftPath: null as string | null, brandsOffered: false, defaultBrand: vi.fn(async (): Promise<any> => null),
 }))
 vi.mock('@purescience/platform-ui/bridge/react/usePlatformBridge', () => ({ usePlatformBridge: () => ({ ready: true, meta: {}, error: null }) }))
 vi.mock('@purescience/platform-ui/bridge/react/usePlatformViewportResource', () => ({ usePlatformViewportResource: () => ({ resource: null, clearResource: () => {} }) }))
 vi.mock('@purescience/platform-ui/bridge/react/useDocumentLifecycle', () => ({ useDocumentLifecycle: (options: any) => {
   mocks.serialize = options.serialize
   return { doc: { path: null }, flush: mocks.flush, adopt: mocks.adopt,
-    markDirty: () => {}, reset: () => { mocks.path = null }, ensureDraft: async () => null }
+    markDirty: () => {}, reset: () => { mocks.path = null }, ensureDraft: async () => mocks.draftPath }
 } }))
 vi.mock('@purescience/platform-bridge/components/AppFrame', () => ({ AppFrame: ({ children, headerActions }: any) => <>{headerActions}{children}</> }))
 vi.mock('@purescience/platform-ui/components/common/documents', () => ({
@@ -31,6 +32,9 @@ vi.mock('./bridge/platformBridge', () => ({
   chooseSiteFolder: mocks.chooseFolder, registerSiteFolder: mocks.registerFolder,
   readBinaryDataUrl: mocks.binary, writeTextFile: vi.fn(async () => {}), deleteFileQuietly: vi.fn(async () => {}),
   createFolder: vi.fn(async () => {}), listMyTools: vi.fn(async () => []),
+  brandsOffered: () => mocks.brandsOffered, defaultBrand: mocks.defaultBrand, onBrandsChanged: () => () => {},
+  readBinaryBase64: vi.fn(async () => ({ base64: 'AA==', mimeType: 'image/png' })), writeBinaryFile: vi.fn(async () => {}),
+  listBrands: vi.fn(async () => []), getBrand: vi.fn(), proposeBrand: vi.fn(), proposeBrandSamples: vi.fn(),
 }))
 vi.mock('@purescience/platform-ui/editing', async importOriginal => ({ ...await importOriginal<any>(), mountMeasuringFrame: vi.fn(async () => ({ ok: false })) }))
 import { App } from './App'
@@ -39,6 +43,7 @@ const deferred = <T,>() => { let resolve!: (v: T) => void; const promise = new P
 beforeEach(async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.clearAllMocks(); mocks.path = null; mocks.writes = []; mocks.board = null
+  mocks.draftPath = null; mocks.brandsOffered = false; mocks.defaultBrand.mockResolvedValue(null)
   mocks.chooseFolder.mockResolvedValue(null); mocks.registerFolder.mockResolvedValue(undefined)
   mocks.adopt.mockImplementation((path: string) => { mocks.path = path })
   mocks.flush.mockImplementation(async () => {
@@ -135,6 +140,39 @@ it('saves edits before creating a new site', async () => {
   await switcher(); await act(async () => mocks.switcher.onCreateNew()); await settle()
   expect(mocks.writes.find(w => w.path === '/Alpha.site')!.files.find(f => f.name === 'pages/index.html')!.content).toContain('Keep this')
   expect(mocks.board.document.title).toBe('Untitled site')
+})
+
+const HOUSE = {
+  id: 'organisation:pure-science', source: 'organisation', name: 'pure.science', default: true, organisation: 'pure.science', revision: '1',
+  path: '/Brands/org/pure-science.designsystem.json', folder: '/Brands/org', files: {}, samples: ['/Brands/org/pure-science.brand/references/site.png'],
+  summary: { palette: [], fonts: [], logos: 0, motifs: 0, samples: 1 },
+  system: { format: 'pure-design-system', version: 1, id: 'pure-science', name: 'pure.science', revision: '1', guidelines: [], components: [],
+    tokens: { colors: { accent: '#3b6fe8' } }, references: [{ name: 'Site', file: 'pure-science.brand/references/site.png' }] },
+}
+
+it('starts a new site in the organisation’s house style and says so', async () => {
+  mocks.brandsOffered = true; mocks.defaultBrand.mockResolvedValue(HOUSE); mocks.draftPath = '/New.site'
+  await switcher(); await act(async () => mocks.switcher.onCreateNew()); await settle()
+  expect(mocks.board.document.manifest.brand).toMatchObject({ id: 'organisation:pure-science', how: 'house-style', default: true })
+  expect(mocks.board.document.styles).toContain('/* pure.science · revision 1 */')
+  expect(mocks.board.brandChip.label).toBe('House style · pure.science')
+  expect(mocks.board.status).toBe('New site, in pure.science, your organisation’s house style.')
+})
+
+it('starts a new site plainly, with one question asked, when there is no organisation', async () => {
+  mocks.brandsOffered = true; mocks.draftPath = '/New.site'
+  mocks.defaultBrand.mockClear()
+  await switcher(); await act(async () => mocks.switcher.onCreateNew()); await settle()
+  expect(mocks.board.document.manifest.brand).toBeUndefined()
+  expect(mocks.board.document.styles).not.toContain('brand:start')
+  expect(mocks.defaultBrand.mock.calls.length).toBeLessThanOrEqual(2)
+})
+
+it('never puts the house style over a site opened from disk', async () => {
+  mocks.brandsOffered = true; mocks.defaultBrand.mockResolvedValue(HOUSE)
+  await open('/Alpha.site'); await settle()
+  expect(mocks.board.document.manifest.brand).toBeUndefined()
+  expect(mocks.board.document.styles).not.toContain('brand:start')
 })
 
 it('keeps saved asset notes while their directory listing is still loading', async () => {

@@ -10,6 +10,7 @@
  * door with "changed since your read" — the refusal names the tool to call
  * again. Nothing here retries with stale content on the agent's behalf.
  */
+import { brandLine } from '../lib/siteBrand'
 import { formatAgentToolJson } from '@purescience/platform-ui/bridge/agentToolHelpers'
 import type { AgentToolHandlerResult } from '@purescience/platform-ui/bridge/react/usePlatformAgentTools'
 import { revisionLabel } from '@purescience/platform-ui/editing/revisionHistory'
@@ -142,6 +143,15 @@ export function getSiteContextHandler(context: SiteAgentToolContext): AgentToolH
       })),
       navOrder: context.document.manifest.pages,
       stylesheetBytes: context.document.styles.length,
+      // The brand the stylesheet's brand block came from; tell the person which it is.
+      brand: context.document.manifest.brand
+        ? {
+            name: context.document.manifest.brand.name,
+            in: brandLine(context.document.manifest.brand),
+            ...(context.document.manifest.brand.id ? { id: context.document.manifest.brand.id } : {}),
+            path: context.document.manifest.brand.path,
+          }
+        : null,
       files: context.material.map(item => ({
         // What to call it in a sentence, and what to write in the markup.
         // Say the name; copy the reference exactly rather than retyping it.

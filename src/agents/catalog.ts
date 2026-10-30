@@ -15,6 +15,7 @@ import type { RevisionEntry } from '@purescience/platform-ui/editing/revisionHis
 import type { AssetRole } from '../lib/assetNotes'
 import type { BuildResult, CheckFinding } from '../lib/buildSite'
 import type { MaterialItem } from '../lib/material'
+import type { SiteBrand } from '../lib/siteBrand'
 import type { SiteDocument, SitePage } from '../lib/siteDocument'
 import type { Collection } from '../lib/siteData'
 import type { SiteVerification } from '../lib/siteVerification'
@@ -39,7 +40,10 @@ export const PURESITE_AGENT_TOOLS = [
   'readStyles',
   'writeStyles',
   'setAssetRole',
+  'listBrands',
   'useBrand',
+  'proposeBrandToOrganisation',
+  'proposeSamplesToOrganisation',
   'makeImage',
   'checkSite',
   'saveSite',
@@ -143,6 +147,12 @@ export interface SiteAgentToolContext {
   ) => AgentLanded
   deleteElement: (page: string, path: string, base: AgentBase) => AgentLanded
   writeStyles: (css: string, base: AgentBase) => AgentLanded
+  /**
+   * The brand block at the top of styles/site.css, and the manifest told
+   * which brand it is, in one landing. `manual` for the app's own doing (a
+   * new site's house style), which offers no Undo.
+   */
+  writeBrand: (block: string, brand: SiteBrand, base: AgentBase, origin?: 'agent' | 'manual') => AgentLanded
   setAssetRole: (name: string, role: AssetRole) => void
   /** Files a brand brings: read beside it, copied flat into the package's assets/. */
   brandFiles: {

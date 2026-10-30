@@ -104,6 +104,19 @@ import {
 import { siteDesignGuide, type ReferenceImage } from './lib/draftSite'
 import { mapConcurrent, readSitePackage, serializeSitePackage } from './lib/packageIO'
 import { siteFontFiles } from './lib/siteFoundation'
+import { withBrandBlock } from './lib/brandStyles'
+import {
+  brandChipLabel,
+  brandLine,
+  effectiveLook,
+  isBrandAsset,
+  keepBrandBlock,
+  wantsHouseStyle,
+  withoutBrandBlock,
+  type SiteBrand,
+} from './lib/siteBrand'
+import { applyBrand, proposeSiteBrand, proposeSiteSamples } from './agents/brandTools'
+import { BrandSheet } from './components/BrandSheet'
 import { collectLayout, type LayoutRead } from './lib/responsiveCheck'
 import { measurePage, readPageOutline } from './lib/hiddenMeasure'
 import { SITE_FONT_URLS } from './fonts/siteFonts'
@@ -136,6 +149,10 @@ import {
   revealPath,
   writeBinaryFile,
   writeTextFile,
+  brandsOffered,
+  defaultBrand,
+  onBrandsChanged,
+  type BrandDetail,
 } from './bridge/platformBridge'
 import { PLATFORM_BRIDGE_METHODS } from '@purescience/platform-ui/bridge/methods'
 import {
@@ -299,6 +316,11 @@ export function App(): React.ReactElement {
   const exportBusy = useRef(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  /** The organisation's house style for this person; null with no organisation (or an older shell). */
+  const [houseStyle, setHouseStyle] = useState<BrandDetail | null>(null)
+  const [brandOpen, setBrandOpen] = useState(false)
+  /** The agent tools' context, for the app's own brand actions — one code path with the tools. */
+  const agentContextRef = useRef<SiteAgentToolContext | null>(null)
   const [publish, setPublish] = useState<PublishState>({
     phase: 'idle',
     message: '',
@@ -831,6 +853,32 @@ export function App(): React.ReactElement {
     }
   }, [lifecycle.doc.path])
 
+  /**
+   * A new site starts in the organisation's house style when nothing else was
+   * given: the same path as useBrand, marked `house-style` so picking another
+   * look in the wizard takes it off again. One defaultBrand() call, null with
+   * no organisation; never over a brand, a brand block or a look already there.
+   */
+  const startInHouseStyle = useCallback(async (generation: number): Promise<void> => {
+    let house: BrandDetail | null = null
+    try {
+      house = await defaultBrand()
+    } catch {
+      return
+    }
+    if (generation !== openGeneration.current) return
+    setHouseStyle(house)
+    const context = agentContextRef.current
+    if (!house || !context || !boundPathRef.current) return
+    if (!wantsHouseStyle(documentRef.current)) return
+    try {
+      await applyBrand(context, { system: house.system, path: house.path, detail: house }, 'house-style', {}, 'manual')
+      setStatus(`New site, ${brandLine(documentRef.current.manifest.brand).replace(/^In/, 'in')}.`)
+    } catch (error) {
+      setStatus(`The house style could not be put on this site: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [])
+
   const createNewSite = useCallback(async (): Promise<void> => {
     const generation = ++openGeneration.current
     materialGeneration.current++
@@ -883,7 +931,8 @@ export function App(): React.ReactElement {
     } finally {
       if (generation === openGeneration.current) { openingRef.current = false; setOpening(false) }
     }
-  }, [history])
+    if (generation === openGeneration.current) await startInHouseStyle(generation)
+  }, [history, startInHouseStyle])
 
   const cancelNewSite = useCallback((): void => {
     // Abandon the run: a draft that comes home to a different number throws
@@ -1142,7 +1191,7 @@ export function App(): React.ReactElement {
       }
       return {
         ...request,
-        guide: siteDesignGuide(current.manifest.look),
+        guide: siteDesignGuide(effectiveLook(current.manifest)),
         material: materialRef.current,
       }
     } finally {
@@ -1163,7 +1212,7 @@ export function App(): React.ReactElement {
     drawerRequestRef.current = request
     return {
       ...request,
-      guide: siteDesignGuide(documentRef.current.manifest.look),
+      guide: siteDesignGuide(effectiveLook(documentRef.current.manifest)),
       material: materialRef.current,
     }
   }
@@ -1817,10 +1866,22 @@ export function App(): React.ReactElement {
         ),
       writeStyles: (css: string, base: AgentBase) =>
         land({
-          next: current => ({ ...current, styles: css }),
+          // A whole stylesheet keeps the brand the site is in (siteBrand.ts).
+          next: current => ({ ...current, styles: keepBrandBlock(current.styles, css) }),
           ...base,
           reason: 'agent-writeStyles',
         }),
+      writeBrand: (block: string, brand: SiteBrand, base: AgentBase, origin: 'agent' | 'manual' = 'agent') => {
+        const next = (current: SiteDocument): SiteDocument => ({
+          ...current,
+          styles: withBrandBlock(current.styles, block),
+          manifest: { ...current.manifest, brand },
+        })
+        if (origin === 'agent') return land({ next, ...base, reason: 'agent-useBrand', scope: brand.name })
+        const out = landEdit({ next, origin: 'manual', reason: 'house-style', scope: brand.name })
+        if (!out.ok) throw new AgentSiteToolError(out.message)
+        return { hash: out.hash, pageHashes: out.pageHashes, changed: out.changed, warning: out.warning, snapshot: out.snapshot }
+      },
       serviceId,
       setCollection: (collection: Collection, base: AgentBase) =>
         land({
@@ -1958,6 +2019,66 @@ export function App(): React.ReactElement {
   ])
 
   usePureSiteAgentTools(ready, agentContext)
+  agentContextRef.current = agentContext
+
+  // The house style can arrive or change while the app is open (the
+  // organisation pushed a new one); the wizard and the brand sheet follow it.
+  const offersBrands = ready && brandsOffered()
+  useEffect(() => {
+    if (!offersBrands) return
+    let live = true
+    const read = (): void => {
+      void defaultBrand()
+        .then(house => { if (live) setHouseStyle(house) })
+        .catch(() => {})
+    }
+    read()
+    const stop = onBrandsChanged(read)
+    return () => {
+      live = false
+      stop()
+    }
+  }, [offersBrands])
+
+  /** Put the house style on the open site: the useBrand path, by the app. */
+  const putOnHouseStyle = useCallback(async (): Promise<void> => {
+    const context = agentContextRef.current
+    if (!houseStyle || !context) throw new Error('There is no house style to use.')
+    if (!boundPathRef.current) throw new Error('Save the site first, so there is somewhere to bring the brand into.')
+    await applyBrand(context, { system: houseStyle.system, path: houseStyle.path, detail: houseStyle }, 'house-style', {}, 'manual')
+    setStatus(`${brandLine(documentRef.current.manifest.brand)}.`)
+  }, [houseStyle])
+
+  /**
+   * The wizard's look. House style puts the organisation's brand on; any other
+   * look is the person choosing something else, so a house style the app put
+   * on is taken off — its block, and the files it brought. A brand someone
+   * chose (useBrand) is left alone.
+   */
+  const chooseLook = useCallback((value: string): void => {
+    const current = documentRef.current
+    if (value === 'house') {
+      applyDocument(doc => ({ ...doc, manifest: { ...doc.manifest, look: 'house' } }))
+      if (!current.manifest.brand) void putOnHouseStyle().catch(error => setStatus(error instanceof Error ? error.message : String(error)))
+      return
+    }
+    const wasHouse = current.manifest.brand?.how === 'house-style'
+    applyDocument(doc => {
+      if (!wasHouse || doc.manifest.brand?.how !== 'house-style') return { ...doc, manifest: { ...doc.manifest, look: value } }
+      const { brand: _brand, ...manifest } = doc.manifest
+      return { ...doc, styles: withoutBrandBlock(doc.styles), manifest: { ...manifest, look: value } }
+    })
+    const root = boundPathRef.current
+    if (!wasHouse || !root) return
+    void (async () => {
+      for (const item of materialRef.current.filter(entry => isBrandAsset(entry.name)))
+        await deleteFileQuietly(`${root}/${SITE_ASSETS_DIR}/${item.name}`)
+      await loadMaterial(root, notesFrom(materialRef.current).filter(note => !isBrandAsset(note.name)))
+    })()
+  }, [applyDocument, loadMaterial, putOnHouseStyle])
+
+  const siteBrand: SiteBrand | undefined = document.manifest.brand
+  const brandPagesLabel = pageSelection.length > 1 ? `${pageSelection.length} ticked pages` : pageSelection.length === 1 ? 'the ticked page' : 'the page on screen'
 
   const onPublishBuild = useCallback(async () => {
     setPublish({ phase: 'building', message: 'Writing build/…' })
@@ -2529,7 +2650,35 @@ export function App(): React.ReactElement {
               setPublish({ phase: 'idle', message: '' })
               setPublishOpen(true)
             }}
+            brandChip={
+              siteBrand || offersBrands
+                ? { label: brandChipLabel(siteBrand), title: siteBrand ? `${brandLine(siteBrand)}. Propose it, or these pages, to your organisation.` : 'This site is not in a saved brand yet.' }
+                : null
+            }
+            onOpenBrand={() => setBrandOpen(true)}
           />
+
+          {brandOpen ? (
+            <BrandSheet
+              brand={siteBrand}
+              offered={offersBrands}
+              houseStyle={houseStyle?.name ?? null}
+              pagesLabel={brandPagesLabel}
+              onProposeBrand={async note => {
+                const context = agentContextRef.current
+                if (!context) throw new Error('The site is still opening.')
+                return (await proposeSiteBrand(context, { note })).message
+              }}
+              onProposeSamples={async note => {
+                const context = agentContextRef.current
+                if (!context) throw new Error('The site is still opening.')
+                const answer = await proposeSiteSamples(context, { note })
+                return answer.message
+              }}
+              onUseHouseStyle={putOnHouseStyle}
+              onClose={() => setBrandOpen(false)}
+            />
+          ) : null}
 
           <NewSiteWizard
             open={wizardOpen}
@@ -2547,12 +2696,18 @@ export function App(): React.ReactElement {
                 manifest: { ...current.manifest, target },
               }))
             }
-            look={document.manifest.look ?? 'auto'}
-            onLook={value =>
-              applyDocument(current => ({
-                ...current,
-                manifest: { ...current.manifest, look: value },
-              }))
+            look={effectiveLook(document.manifest)}
+            onLook={chooseLook}
+            houseStyle={
+              houseStyle
+                ? {
+                    name: houseStyle.name,
+                    line:
+                      siteBrand?.how === 'house-style'
+                        ? brandLine(siteBrand)
+                        : `In ${houseStyle.name}, your organisation’s house style`,
+                  }
+                : null
             }
             material={material}
             previews={previews}

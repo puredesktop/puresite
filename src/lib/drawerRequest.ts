@@ -1,5 +1,6 @@
 import { elementAt, normalizePagePath } from './pages'
 import { type SiteDocument } from './siteDocument'
+import { keepBrandBlock } from './siteBrand'
 export interface DrawerRequest {
   descriptionBase?: string
   sessionId?: string
@@ -76,7 +77,8 @@ export function compositionFor(
     ...current,
     title,
     pages: merged,
-    styles: args.styles,
+    // The brand the site is in stays: a drafted stylesheet that left its block out keeps it.
+    styles: keepBrandBlock(current.styles, args.styles),
     manifest: { ...current.manifest, title, pages: Object.keys(merged) },
   }
 }

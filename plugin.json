@@ -536,14 +536,25 @@
           "requiresApproval": true
         },
         {
+          "name": "listBrands",
+          "risk": "read",
+          "description": "Every brand this person can put on the site: the organisation's (its house style marked default: true, with its sample image paths), the workspace's Brands folder and their own, each with id, name, source, path, palette, fonts and sample count, plus the brand the site is in now. With an organisation house style, it is the look whenever the person gives no other reference, brand or look: view its samples with view_image first, then useBrand with its id. On a desktop that does not list brands it says so; useBrand then takes a path.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
           "name": "useBrand",
-          "description": "Put an organisation's saved brand on the site: a .designsystem.json (the suite's shared brand format, saved by PureSlides' saveLookAsBrand, Canvas or PureDesign) with its fonts, logos, motif art and reference images beside it. Its files are copied into assets/ (fonts self-hosted, logos and references marked), and a managed block at the top of styles/site.css gets the @font-face rules and --brand-* custom properties (bg, surface, ink, muted, accent, on-accent, accent-2, highlight, line, font-display, font-body, font-mono, display-weight, heading-case, radius, motif). Re-applying replaces only that block. Then write the rest of the stylesheet with those properties.",
+          "description": "Put a saved brand on the site: the organisation's house style, a workspace brand or the person's own (listBrands names them all), or any .designsystem.json (the suite's shared brand format, saved by PureSlides' saveLookAsBrand, Canvas or PureDesign) with its fonts, logos, motif art and reference images beside it. Its files are copied into assets/ (fonts self-hosted, logos and references marked), and a managed block at the top of styles/site.css gets the @font-face rules and --brand-* custom properties (bg, surface, ink, muted, accent, on-accent, accent-2, highlight, line, font-display, font-body, font-mono, display-weight, heading-case, radius, motif). Re-applying replaces only that block; the site remembers which brand it is in. Then write the rest of the stylesheet with those properties, and tell the person which brand you used.",
           "inputSchema": {
             "type": "object",
             "properties": {
               "brand": {
                 "type": "string",
-                "description": "Absolute path of the .designsystem.json file."
+                "description": "A brand id from listBrands (an organisation brand's id works), or the absolute path of a .designsystem.json file."
               },
               "baseHash": {
                 "type": "string",
@@ -554,6 +565,65 @@
               "brand",
               "baseHash"
             ]
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "proposeBrandToOrganisation",
+          "description": "Send a saved brand (a .designsystem.json with its .brand/ folder) to the organisation's PureServer, for an administrator to approve as one of its brands. It must carry at least one sample image (reference). Use it when the person says a brand they made should be the organisation's. Without brand, the brand the site is in. Errors come back in plain words (not in an organisation; no sample images): pass them on. Nothing changes until an administrator approves.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "brand": {
+                "type": "string",
+                "description": "A brand id from listBrands, or the absolute path of a .designsystem.json. Defaults to the site's brand."
+              },
+              "note": {
+                "type": "string",
+                "description": "A line for the administrator: why this brand."
+              }
+            },
+            "additionalProperties": false
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "proposeSamplesToOrganisation",
+          "description": "Send sample images to the organisation for one of its brands (the site's brand when it is the organisation's, otherwise its house style): once an administrator approves, they join the brand's samples that every design agent looks at first. Without images, the site's own pages are captured as PNG (the ticked pages, or the one on screen; at 1280 wide unless widths are given; at most 12 images). Use it when the person says this site shows the house style well.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "images": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Absolute paths of PNG, JPEG or WebP images (at most 12), e.g. ones exportPage made. Leave out to capture pages."
+              },
+              "pages": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Page paths to capture when no images are given."
+              },
+              "widths": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "Widths to capture each page at (320–3840), e.g. [1280, 390]."
+              },
+              "brand": {
+                "type": "string",
+                "description": "The organisation brand's id from listBrands; defaults as above."
+              },
+              "note": {
+                "type": "string",
+                "description": "A line for the administrator."
+              }
+            },
+            "additionalProperties": false
           },
           "requiresApproval": true
         },
