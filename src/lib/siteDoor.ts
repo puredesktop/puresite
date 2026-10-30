@@ -21,6 +21,7 @@
  * the whole site back and can never carry an old `published` record (and
  * its one-time claim token) over the live one.
  */
+import { withSiteFoundation } from './siteFoundation'
 import {
   applyEdit,
   STALE_MANUAL_MESSAGE,
@@ -84,12 +85,20 @@ function validateSite(next: SiteDocument): string | null {
  * Admit an edit against the current site. Pure: the host lands what comes
  * back, snapshots by the kit's policy, and persists.
  */
+function withFoundation(document: SiteDocument): SiteDocument {
+  if (!document || typeof document.styles !== 'string') return document
+  const styles = withSiteFoundation(document.styles)
+  return styles === document.styles ? document : { ...document, styles }
+}
+
 export function admitSiteEdit(
   request: SiteEditRequest,
   current: { content: SiteDocument; hash: string },
 ): SiteEditOutcome {
-  const transform = typeof request.next === 'function' ? request.next : null
-  const next = transform ? transform(current.content) : (request.next as SiteDocument)
+  // Every stylesheet that lands carries the app's foundation (siteFoundation.ts): one place, every path in.
+  const raw = typeof request.next === 'function' ? request.next : null
+  const transform = raw ? (content: SiteDocument) => withFoundation(raw(content)) : null
+  const next = transform ? transform(current.content) : withFoundation(request.next as SiteDocument)
 
   let baseHash = request.baseHash
   if (request.page !== undefined && baseHash !== undefined) {

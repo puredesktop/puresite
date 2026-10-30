@@ -11,6 +11,7 @@ import { formatAgentToolJson } from '@purescience/platform-ui/bridge/agentToolHe
 import type { AgentToolHandlerResult } from '@purescience/platform-ui/bridge/react/usePlatformAgentTools'
 import { parseDesignSystem } from '@purescience/platform-ui/design/brief'
 import { brandAssets, brandBlock, withBrandBlock } from '../lib/brandStyles'
+import { analyseLayout } from '../lib/responsiveCheck'
 import { AgentSiteToolError, type SiteAgentToolContext } from './catalog'
 
 type Args = Record<string, unknown>
@@ -87,5 +88,41 @@ export async function makeImageHandler(context: SiteAgentToolContext, args: Args
       use: 'Reference it from styles/site.css as url("../assets/' + name + '") (or --brand-motif) or from a page as assets/' + name + '. Judge the picture against the reference; make it again with a sharper prompt if it is off. Use one motif consistently.',
     }),
     ...(made.mimeType === 'image/png' || made.mimeType === 'image/jpeg' ? { images: [{ mimeType: made.mimeType as 'image/png' | 'image/jpeg', data: made.base64 }] } : {}),
+  }
+}
+
+/**
+ * The page at a phone's and a tablet's width, measured: buttons that wrap,
+ * the headline's line count, gutters, small text, empty bands, mixed
+ * alignment, tight tracking, sideways scroll. Clean means no findings.
+ */
+export async function checkResponsiveHandler(context: SiteAgentToolContext, args: Args): Promise<AgentToolHandlerResult> {
+  const page = str(args.page) ?? context.selectedPage
+  if (!context.document.pages[page]) throw new AgentSiteToolError(`no page called ${page}`)
+  const asked = Array.isArray(args.widths) ? args.widths.map(Number).filter(w => Number.isInteger(w) && w >= 320 && w <= 1920) : []
+  const widths = asked.length ? asked.slice(0, 4) : [390, 768]
+  const measured = await context.checkResponsive(page, widths)
+  const results = measured.map(({ width, read, why }) => {
+    if (!read) return { width, measured: false, why: why ?? 'the page could not be measured (is PureSite visible?)' }
+    const findings = analyseLayout(read)
+    const h1 = read.boxes.find(box => box.kind === 'h1')
+    return {
+      width,
+      measured: true,
+      headline: h1 ? { text: h1.text.slice(0, 80), lines: h1.lines, fontSize: Math.round(h1.fontSize) } : null,
+      clean: findings.length === 0,
+      findings: findings.map(({ code, message, fix }) => ({ code, message, fix })),
+    }
+  })
+  const clean = results.every(result => 'clean' in result && result.clean)
+  return {
+    content: formatAgentToolJson({
+      page,
+      clean,
+      results,
+      next: clean
+        ? 'Now exportPage with format png at width 390 and look at it with view_image: the numbers do not see everything.'
+        : 'Fix every finding in styles/site.css (the foundation tokens: --gutter, --space-*, --step-*), then run checkResponsive again until it is clean, then exportPage png at 390 and look at it with view_image.',
+    }),
   }
 }

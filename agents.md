@@ -189,16 +189,52 @@ the site is made in THAT look, unmistakably. The method is the suite's shared
    accent such as a headline's second-colour line, a highlight for small
    tags), the type (classify the face; self-host an open face, never link a
    font CDN), weights, tracking, radius, the button shape, the spacing.
-4. **Generate the motif; never draw it.** A recurring graphic idea — a
-   network of glowing nodes, a grain, a light field, hero or conceptual art —
-   is made with the image model: `makeImage`, prompted from the reference and
+4. **Generate the motif; never draw it — before you compose.** A recurring
+   graphic idea — a network of glowing nodes, a grain, a light field, hero or
+   conceptual art — is made with the image model first, then composed with: `makeImage`, prompted from the reference and
    the brand palette, with `reference` set. Use it as the hero's background
    and reuse it; SVG or CSS shapes only when `makeImage` reports no image
    model, or for exact diagrams and charts.
 5. **Compare before you finish.** `exportPage` with `format: "png"` at the
    reference's width, then `view_image` on that PNG and the reference. Name
    every difference someone who knows the brand would see, fix it, and look
-   again; check a phone width (390) too.
+   again.
+6. **Headlines from the claims.** Headlines and section heads use the brief's
+   own claims and words, not lines of your own; the hero headline stays short
+   (about 45 characters) so it sets in two or three lines on a phone.
+
+## In scale at every width
+
+The stylesheet opens with a foundation block PureSite writes on every save
+(between `site:foundation` comments; never edit it, write after it). Use its
+tokens and the page is in scale on a phone by default:
+
+- `--gutter`: the one side padding. Every section, the header and footer use
+  `padding-inline: var(--gutter)`; cards stay inside it.
+- `--space-section` (and `--space-xs` … `--space-xl`): vertical spacing that
+  steps down on phones. No fixed 100px+ section padding.
+- `--step--1` … `--step-5`: fluid type (`clamp()`): hero `--step-5`, section
+  headings `--step-4`/`--step-3`, body `--step-0`, nothing under 14px.
+- Tracking no tighter than -0.035em (`--tracking-display`); tighter values in
+  em are capped on save.
+- `<header class="site-header">` with a wordmark, a `<nav>` and one
+  `<a class="button">` compacts on phones by itself: links hide, the button
+  shrinks and never wraps, the tag stays on one line.
+- Fonts: name an open face PureSite hosts (Inter, Montserrat, Manrope, DM Sans,
+  Plus Jakarta Sans, Space Grotesk, Archivo, Newsreader, JetBrains Mono, IBM
+  Plex Mono) and its woff2 is written into `assets/fonts/` and declared in the
+  foundation, so the type travels. Never link a font CDN.
+
+**The mobile check is part of done.** After every draft or stylesheet change:
+
+1. `checkResponsive` (390 and 768 by default) measures buttons that wrap or
+   overflow, the headline's line count (at most 3), gutters under 16px (24px
+   on a tablet), text under 14px, empty vertical bands, section headings that
+   switch alignment, tracking tighter than -0.035em and sideways scrolling.
+2. Fix every finding and run it again until it reports `clean`.
+3. `exportPage` png at 390, and look at it with `view_image`. The numbers do
+   not see everything; a page is not done until you have looked at it on a
+   phone.
 
 ## Files have roles
 

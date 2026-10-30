@@ -103,6 +103,9 @@ import {
 } from './lib/siteData'
 import { siteDesignGuide, type ReferenceImage } from './lib/draftSite'
 import { mapConcurrent, readSitePackage, serializeSitePackage } from './lib/packageIO'
+import { siteFontFiles } from './lib/siteFoundation'
+import { collectLayout, type LayoutRead } from './lib/responsiveCheck'
+import { SITE_FONT_URLS } from './fonts/siteFonts'
 import {
   DEFAULT_SERVICE_ID,
   loadPublishServices,
@@ -1338,7 +1341,7 @@ export function App(): React.ReactElement {
         hash: request.outputHash,
         complete: false,
         nextAction:
-          'checkSite and buildSite; a saved draft is not a verified build or a published site.',
+          'checkSite, then checkResponsive (390 and 768) and fix every finding, then exportPage png at 390 and look at it with view_image beside the reference; buildSite only after that. A saved draft is not a verified build or a published site.',
       }
     } finally {
       drawerCommitBusy.current = false
@@ -1522,15 +1525,40 @@ export function App(): React.ReactElement {
     }
   }, [measureSite])
 
+  /**
+   * The open faces the stylesheet names, written into the package's
+   * assets/fonts/ (once per package and file), so the build, the review
+   * exports and anyone opening the folder get the same type as the preview.
+   */
+  const fontsWritten = useRef(new Set<string>())
+  const writeSiteFonts = useCallback(async (root: string): Promise<void> => {
+    const wanted = siteFontFiles(documentRef.current.styles).filter(file => !fontsWritten.current.has(`${root}/${file}`))
+    if (!wanted.length) return
+    for (const [parent, name] of [[root, SITE_ASSETS_DIR], [`${root}/${SITE_ASSETS_DIR}`, 'fonts']] as const) {
+      try {
+        await createFolder(parent, name)
+      } catch {
+        /* already there */
+      }
+    }
+    for (const file of wanted) {
+      const url = SITE_FONT_URLS[file]
+      if (!url) continue
+      await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${file}`, url.replace(/^data:[^,]*,/, ''))
+      fontsWritten.current.add(`${root}/${file}`)
+    }
+  }, [])
+
   const saveSite = useCallback(async (): Promise<string> => {
     const lifecycle = lifecycleRef.current
     const path = (await lifecycle.ensureDraft()) ?? boundPathRef.current
     if (!path) throw new Error('the site has no folder to save into')
     await lifecycle.flush({ throwOnError: true })
+    await writeSiteFonts(path)
     boundPathRef.current = path
     setDocumentPath(path)
     return path
-  }, [])
+  }, [writeSiteFonts])
 
   const runBuild = useCallback(async (): Promise<BuildResult & { buildPath: string }> => {
     const root = boundPathRef.current
@@ -1543,6 +1571,7 @@ export function App(): React.ReactElement {
     // reasons — a broken link, a page that scrolls sideways, an asset the
     // preview could not show.
     await lifecycleRef.current.flush({ throwOnError: true })
+    await writeSiteFonts(root)
     const guard = await ensureExportable(() => verifyNow().state, measureSite)
     if (!guard.ok) {
       const verdict = verifyNow()
@@ -1651,6 +1680,7 @@ export function App(): React.ReactElement {
         : `${root}/reviews/${crypto.randomUUID()}-${filename}`
       if (!output) return null
       await lifecycleRef.current.flush({ throwOnError: true })
+      await writeSiteFonts(root)
       const html = documentRef.current.pages[page]
       if (!html) throw new Error('This page has no content to export yet.')
       if (!input.choosePath) await createFolder(root, 'reviews')
@@ -1910,6 +1940,22 @@ export function App(): React.ReactElement {
       saveSite,
       buildSite: runBuild,
       exportPage: exportReview,
+      checkResponsive: async (page: string, widths: number[]) => {
+        const current = documentRef.current
+        const out: { width: number; read: LayoutRead | null; why?: string }[] = []
+        for (const width of widths) {
+          const srcdoc = previewDocument({ html: current.pages[page] ?? '', styles: current.styles, assets: previewsRef.current, page })
+          const mounted = await mountMeasuringFrame(srcdoc, { width, height: Math.round(width * 1.9), timeoutMs: 6000 })
+          if (!mounted.ok) {
+            out.push({ width, read: null, why: `the page did not load (${mounted.reason})` })
+            continue
+          }
+          const read = mounted.frame.measure((doc, win) => collectLayout(doc, win, width), mounted.frame.document.body)
+          mounted.frame.dispose()
+          out.push(read.ok ? { width, read: read.value } : { width, read: null, why: 'PureSite is hidden, so nothing could be measured: bring it on screen and check again' })
+        }
+        return out
+      },
     }
   }, [
     document,

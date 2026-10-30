@@ -58,7 +58,46 @@ Rules for the pages:
   write is what gets served.
 
 The stylesheet governs every page — one palette, one type scale, one measure.
-Write it once, properly, rather than putting styles in each page.`
+Write it once, properly, rather than putting styles in each page.
+
+The stylesheet opens with a foundation block the app writes itself (replaced on
+every save; write your rules after it). It gives you, and you MUST use them, so
+the page is in scale at 390, 768 and 1280:
+- --gutter: the one side padding. Every section, the header and the footer get
+  padding-inline: var(--gutter); cards and grids sit inside it, never against
+  the screen edge.
+- --space-section (and --space-xs … --space-xl): vertical spacing that steps
+  down on phones. Sections use padding-block: var(--space-section); never a
+  fixed 100px+ that leaves empty bands on a phone.
+- --step--1 … --step-5: fluid type sizes (clamp). The hero headline uses
+  var(--step-5), section headings var(--step-4) or var(--step-3), body
+  var(--step-0); nothing under 14px. No fixed px headline sizes.
+- Tracking no tighter than -0.035em (var(--tracking-display) for the hero);
+  tighter is capped, because heavy letters touch.
+- A conventional header — <header class="site-header"> with the wordmark, a
+  <nav> of links and one <a class="button"> — compacts on phones by itself:
+  the links hide, the button shrinks and never wraps, the wordmark's tag stays
+  one line. Keep that markup.
+- Fonts: name an open face the app hosts — Inter, Montserrat, Manrope, DM Sans,
+  Plus Jakarta Sans, Space Grotesk, Archivo, Newsreader, JetBrains Mono, IBM
+  Plex Mono — and it is self-hosted in the package automatically. Never link a
+  font CDN.
+
+Copy: headlines and section heads come from the brief's own claims and words,
+not lines of your own. Keep the hero headline short (about 45 characters at
+most) so it sets in two or three lines on a phone. Hold one alignment for
+section headings down the page (the hero may be centred).
+
+Art: when the reference has a recurring graphic idea — glowing nodes and lines,
+a grain, a light field, hero or conceptual art — it is GENERATED with makeImage
+before you compose (from the reference, with the palette), saved in assets/,
+and used in the stylesheet as url("../assets/<name>.png"). Never imitate it with
+CSS lines, dots or SVG; that is only a fallback when makeImage reports no image
+model.
+
+After committing: checkSite, then checkResponsive at 390 and 768 and fix every
+finding, then exportPage png at 390 and look at it with view_image beside the
+reference. Keep fixing until it is clean.`
 
 const LOOKS: Record<string, string> = {
   auto: `LOOK — read it off the attached files. A design reference wins: take

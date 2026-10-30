@@ -8,6 +8,7 @@
  * toolchain needs the privileged layer — a different phase with a different
  * risk profile.
  */
+import { siteFontFiles } from './siteFoundation'
 import { SITE_STYLESHEET } from '../constants'
 import { referencedAssets, stylesheetLinkState } from './preview'
 import {
@@ -44,6 +45,8 @@ export function planBuild(
 ): BuildResult {
   const files: BuiltFile[] = []
   const used = new Set<string>()
+  // The open faces the stylesheet names are written into assets/fonts/ on save (siteFoundation.ts).
+  availableAssets = [...availableAssets, ...siteFontFiles(document.styles)]
 
   for (const page of orderedPages(document)) {
     const html = document.pages[page.path] ?? ''
@@ -96,6 +99,7 @@ export function checkSite(
 ): CheckFinding[] {
   const findings: CheckFinding[] = []
   const pages = Object.keys(document.pages)
+  availableAssets = [...availableAssets, ...siteFontFiles(document.styles)]
 
   if (!pages.includes('index.html')) {
     findings.push({

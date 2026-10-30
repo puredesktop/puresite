@@ -21,6 +21,7 @@
  * given the site's look either. What the preview cannot do — show an asset
  * too large to inline — it says (`oversizeAssets`), rather than looking fine.
  */
+import { SITE_FONT_URLS } from '../fonts/siteFonts'
 import { DEFAULT_HOME_PAGE, MAX_INLINE_BYTES, SITE_STYLESHEET } from '../constants'
 import { relativePrefix } from './siteDocument'
 
@@ -162,6 +163,8 @@ export function previewDocument({
   page = DEFAULT_HOME_PAGE,
   knownPages,
 }: PreviewInput): string {
+  // The bundled faces are always there to show, read from the app rather than the package.
+  assets = { ...SITE_FONT_URLS, ...assets }
   let out = inlineStyles(html, styles, page)
   const affordable = inlineBudget(out, assets) <= MAX_INLINE_BYTES
 

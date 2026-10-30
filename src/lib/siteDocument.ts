@@ -11,6 +11,7 @@
  * thing that matters: what you preview is what you ship, links between pages
  * are real, and an agent can be handed one page without the rest.
  */
+import { withSiteFoundation } from './siteFoundation'
 import {
   DEFAULT_HOME_PAGE,
   DEFAULT_SITE_TITLE,
@@ -194,17 +195,17 @@ body {
 .page {
   max-width: var(--measure);
   margin: 0 auto;
-  padding: 72px 24px 96px;
+  padding: var(--space-xl) var(--gutter) var(--space-section);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-s);
 }
 
 h1 {
   margin: 0;
-  font-size: clamp(32px, 6vw, 52px);
+  font-size: var(--step-4);
   line-height: 1.1;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-heading);
   text-wrap: balance;
 }
 
@@ -217,7 +218,7 @@ export function createDefaultSiteDocument(): SiteDocument {
   return {
     title: DEFAULT_SITE_TITLE,
     pages: { [DEFAULT_HOME_PAGE]: starterPageHtml(DEFAULT_SITE_TITLE) },
-    styles: STARTER_STYLES,
+    styles: withSiteFoundation(STARTER_STYLES),
     manifest: {
       title: DEFAULT_SITE_TITLE,
       pages: [DEFAULT_HOME_PAGE],
