@@ -13,7 +13,10 @@
     "url": "http://localhost:5450"
   },
   "app": {
-    "acceptedDragKinds": ["video", "image"],
+    "acceptedDragKinds": [
+      "video",
+      "image"
+    ],
     "id": "plugin.site",
     "slug": "site",
     "name": "PureSite",
@@ -76,11 +79,96 @@
           },
           "requiresApproval": true
         },
-        {"name": "cancelDrawerRequest", "risk": "destructive", "description": "Cancel the saved pending request by ID. Subsequent commits are refused. Does not undo a completed save.", "inputSchema": {"type": "object", "properties": {"requestId": {"type": "string"}}, "required": ["requestId"]}},
-        {"name": "prepareSite", "description": "Save the current site brief as a composition request. No model call. Returns only the request identity: requestId, baseHash, path, kind, status and counts. Then call getDrawerRequest for the saved HTML, styles, design guide and files, compose here, commitDrawerRequest with that requestId and baseHash, then checkSite and buildSite.", "inputSchema": {"type": "object", "properties": {"brief":{"type":"string","description":"Optional creation brief; defaults to the saved brief."}}}},
-        {"name": "getDrawerRequest", "risk": "read", "description": "Read the saved request, exact HTML/baseHash, edit scope, assets and design guide.", "requiresApproval": false, "inputSchema": {"type": "object", "properties": {}, "required": []}},
-        {"name": "commitDrawerRequest", "description": "Commit the saved request once. Draft/edit: supply complete pages and styles preserving everything outside the saved selection. Describe: supply descriptions only from actual image pixels. Returns persisted status, not layout certification.", "requiresApproval": true, "inputSchema": {"type": "object", "properties": {"requestId": {"type": "string"}, "baseHash": {"type": "string"}, "title": {"type": "string"}, "descriptions": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "description": {"type": "string"}}, "required": ["name", "description"]}}, "pages": {"type": "object", "additionalProperties": {"type": "string"}}, "styles": {"type": "string"}}, "required": ["requestId", "baseHash"]}},
-
+        {
+          "name": "cancelDrawerRequest",
+          "risk": "destructive",
+          "description": "Cancel the saved pending request by ID. Subsequent commits are refused. Does not undo a completed save.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requestId"
+            ]
+          }
+        },
+        {
+          "name": "prepareSite",
+          "description": "Save the current site brief as a composition request. No model call. Returns only the request identity: requestId, baseHash, path, kind, status and counts. Then call getDrawerRequest for the saved HTML, styles, design guide and files, compose here, commitDrawerRequest with that requestId and baseHash, then checkSite and buildSite.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "brief": {
+                "type": "string",
+                "description": "Optional creation brief; defaults to the saved brief."
+              }
+            }
+          }
+        },
+        {
+          "name": "getDrawerRequest",
+          "risk": "read",
+          "description": "Read the saved request, exact HTML/baseHash, edit scope, assets and design guide.",
+          "requiresApproval": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "commitDrawerRequest",
+          "description": "Commit the saved request once. Draft/edit: supply complete pages and styles preserving everything outside the saved selection. Describe: supply descriptions only from actual image pixels. Returns persisted status, not layout certification.",
+          "requiresApproval": true,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "baseHash": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "descriptions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "description"
+                  ]
+                }
+              },
+              "pages": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "styles": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requestId",
+              "baseHash"
+            ]
+          }
+        },
         {
           "name": "getSiteContext",
           "risk": "read",
@@ -94,7 +182,7 @@
         },
         {
           "name": "getSiteMap",
-          "description": "The site as its links draw it: every page with what it links to and what links to it, every page the writing PROMISES but nobody has built (with the sentences that promised it and a brief taken only from them), and every page nothing points at. A promised page is not an error \u2014 the build keeps the words and drops the anchor, so no reader meets a dead end. Read this before adding a page: the site usually already says what it needs.",
+          "description": "The site as its links draw it: every page with what it links to and what links to it, every page the writing PROMISES but nobody has built (with the sentences that promised it and a brief taken only from them), and every page nothing points at. A promised page is not an error — the build keeps the words and drops the anchor, so no reader meets a dead end. Read this before adding a page: the site usually already says what it needs.",
           "requiresApproval": false,
           "risk": "read",
           "inputSchema": {
@@ -422,6 +510,62 @@
               "role"
             ],
             "additionalProperties": false
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "useBrand",
+          "description": "Put an organisation's saved brand on the site: a .designsystem.json (the suite's shared brand format, saved by PureSlides' saveLookAsBrand, Canvas or PureDesign) with its fonts, logos, motif art and reference images beside it. Its files are copied into assets/ (fonts self-hosted, logos and references marked), and a managed block at the top of styles/site.css gets the @font-face rules and --brand-* custom properties (bg, surface, ink, muted, accent, on-accent, accent-2, highlight, line, font-display, font-body, font-mono, display-weight, heading-case, radius, motif). Re-applying replaces only that block. Then write the rest of the stylesheet with those properties.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "brand": {
+                "type": "string",
+                "description": "Absolute path of the .designsystem.json file."
+              },
+              "baseHash": {
+                "type": "string",
+                "description": "The site hash from getSiteContext or readStyles."
+              }
+            },
+            "required": [
+              "brand",
+              "baseHash"
+            ]
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "makeImage",
+          "description": "Generate a picture for the site with the desktop's image model (best quality): the brand's motif or texture (a network of glowing nodes, a grain, a light field), hero or conceptual art. This is the default for any such art in a reference: never imitate it with CSS shapes or SVG line art. SVG or CSS is only a fallback when this tool reports no image model, or for exact diagrams and charts. Prompt from the reference (what it is, its light, density, colours, the brand palette as hex); pass reference (an asset name or absolute path) so the model matches it. Background art is asked for wide and calm with quiet areas for text and no text in it. Saved as assets/<name>.png; the picture comes back so you can judge it. Reuse one motif across the site.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prompt": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "reference": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string",
+                "enum": [
+                  "1536x1024",
+                  "1024x1024",
+                  "1024x1536"
+                ]
+              },
+              "background": {
+                "type": "boolean",
+                "description": "Background-safe art with quiet areas for text (default true)."
+              }
+            },
+            "required": [
+              "prompt"
+            ]
           },
           "requiresApproval": true
         },

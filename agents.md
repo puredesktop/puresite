@@ -170,6 +170,36 @@ site whose pages each carry their own styles cannot be restyled at all. A page
 with neither a stylesheet link nor a `<style>` of its own previews unstyled,
 as it will ship, and `checkSite` warns (`no-stylesheet`).
 
+## An organisation's own look — from a reference or a brand
+
+When the person gives a reference image (their current website, a
+brochure, a screenshot) or a saved brand, or asks for "our look and feel",
+the site is made in THAT look, unmistakably. The method is the suite's shared
+**Matching a house style** skill (`read_skill`); with this app's tools:
+
+1. **Look at the reference first** with `view_image` and its absolute path —
+   never the Computer tool, never from its filename.
+2. **A saved brand comes first.** If there is a `.designsystem.json` for the
+   organisation (PureSlides' `saveLookAsBrand`, Canvas or PureDesign write
+   one, usually in the workspace's `Brands/` folder), `useBrand` puts it on
+   the site: fonts self-hosted in `assets/`, logos and references marked,
+   `--brand-*` properties at the top of `styles/site.css`.
+3. **Otherwise read it off the pixels** into `writeStyles`: the palette by
+   role (ground, text, muted, accent for the one primary button, a second
+   accent such as a headline's second-colour line, a highlight for small
+   tags), the type (classify the face; self-host an open face, never link a
+   font CDN), weights, tracking, radius, the button shape, the spacing.
+4. **Generate the motif; never draw it.** A recurring graphic idea — a
+   network of glowing nodes, a grain, a light field, hero or conceptual art —
+   is made with the image model: `makeImage`, prompted from the reference and
+   the brand palette, with `reference` set. Use it as the hero's background
+   and reuse it; SVG or CSS shapes only when `makeImage` reports no image
+   model, or for exact diagrams and charts.
+5. **Compare before you finish.** `exportPage` with `format: "png"` at the
+   reference's width, then `view_image` on that PNG and the reference. Name
+   every difference someone who knows the brand would see, fix it, and look
+   again; check a phone width (390) too.
+
 ## Files have roles
 
 A file marked **reference** is a design reference: read its palette, type and

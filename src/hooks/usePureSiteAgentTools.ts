@@ -5,6 +5,7 @@
  * running sees the site as it is now rather than as it was when the drawer
  * opened.
  */
+import { makeImageHandler, useBrandHandler } from '../agents/brandTools'
 import { useRef } from 'react'
 import { usePlatformAgentTools } from '@purescience/platform-ui/bridge/react/usePlatformAgentTools'
 import {
@@ -98,6 +99,10 @@ export function usePureSiteAgentTools(
         writeStylesHandler(contextRef.current, invoke.arguments ?? {}),
       setAssetRole: async invoke =>
         setAssetRoleHandler(contextRef.current, invoke.arguments ?? {}),
+      useBrand: async invoke =>
+        useBrandHandler(contextRef.current, invoke.arguments ?? {}),
+      makeImage: async invoke =>
+        makeImageHandler(contextRef.current, invoke.arguments ?? {}),
       checkSite: async () => checkSiteHandler(contextRef.current),
       saveSite: async () => saveSiteHandler(contextRef.current),
       buildSite: async () => buildSiteHandler(contextRef.current),

@@ -39,6 +39,8 @@ export const PURESITE_AGENT_TOOLS = [
   'readStyles',
   'writeStyles',
   'setAssetRole',
+  'useBrand',
+  'makeImage',
   'checkSite',
   'saveSite',
   'buildSite',
@@ -139,6 +141,25 @@ export interface SiteAgentToolContext {
   deleteElement: (page: string, path: string, base: AgentBase) => AgentLanded
   writeStyles: (css: string, base: AgentBase) => AgentLanded
   setAssetRole: (name: string, role: AssetRole) => void
+  /** Files a brand brings: read beside it, copied flat into the package's assets/. */
+  brandFiles: {
+    readText: (path: string) => Promise<string>
+    readBase64: (path: string) => Promise<{ base64: string; mimeType: string }>
+    copyIn: (from: string, name: string) => Promise<void>
+    writeAsset: (name: string, base64: string) => Promise<void>
+    /** Re-read assets/ so new files are material the site knows. */
+    refresh: () => Promise<void>
+  }
+  /** The desktop's image model; null when it has none. */
+  generateImage:
+    | ((request: {
+        prompt: string
+        sourceImages?: { base64: string; mimeType: string; name?: string }[]
+        size?: '1536x1024' | '1024x1024' | '1024x1536'
+        quality?: 'auto' | 'low' | 'medium' | 'high'
+        outputFormat?: 'png' | 'jpeg' | 'webp'
+      }) => Promise<{ base64: string; mimeType: string; modelId: string }>)
+    | null
   setCollection: (collection: Collection, base: AgentBase) => AgentLanded
   deleteCollection: (name: string, base: AgentBase) => AgentLanded
   addFormForCollection: (
