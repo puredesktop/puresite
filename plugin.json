@@ -570,7 +570,7 @@
         },
         {
           "name": "proposeBrandToOrganisation",
-          "description": "Send a saved brand (a .designsystem.json with its .brand/ folder) to the organisation's PureServer, for an administrator to approve as one of its brands. It must carry at least one sample image (reference). Use it when the person says a brand they made should be the organisation's. Without brand, the brand the site is in. Errors come back in plain words (not in an organisation; no sample images): pass them on. Nothing changes until an administrator approves.",
+          "description": "Call getSiteContext first. Propose a saved brand (a .designsystem.json with its .brand/ folder) to the organisation's PureServer, for an administrator to approve as one of its brands. It must carry at least one sample image (reference). Use it when the person says a brand they made should be the organisation's. Without brand, the brand the site is in. Errors come back in plain words (not in an organisation; no sample images): pass them on. Nothing changes until an administrator approves.",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -585,11 +585,12 @@
             },
             "additionalProperties": false
           },
-          "requiresApproval": true
+          "requiresApproval": true,
+          "risk": "external"
         },
         {
           "name": "proposeSamplesToOrganisation",
-          "description": "Send sample images to the organisation for one of its brands (the site's brand when it is the organisation's, otherwise its house style): once an administrator approves, they join the brand's samples that every design agent looks at first. Without images, the site's own pages are captured as PNG (the ticked pages, or the one on screen; at 1280 wide unless widths are given; at most 12 images). Use it when the person says this site shows the house style well.",
+          "description": "Call getSiteContext first. Propose sample images to the organisation for one of its brands (the site's brand when it is the organisation's, otherwise its house style): once an administrator approves, they join the brand's samples that every design agent looks at first. Without images, the site's own pages are captured as PNG (the ticked pages, or the one on screen; at 1280 wide unless widths are given; at most 12 images). Use it when the person says this site shows the house style well.",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -625,7 +626,8 @@
             },
             "additionalProperties": false
           },
-          "requiresApproval": true
+          "requiresApproval": true,
+          "risk": "external"
         },
         {
           "name": "makeImage",
