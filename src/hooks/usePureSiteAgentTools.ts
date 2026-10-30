@@ -5,7 +5,14 @@
  * running sees the site as it is now rather than as it was when the drawer
  * opened.
  */
-import { checkResponsiveHandler, makeImageHandler, useBrandHandler } from '../agents/brandTools'
+import {
+  checkResponsiveHandler,
+  listBrandsHandler,
+  makeImageHandler,
+  proposeBrandToOrganisationHandler,
+  proposeSamplesToOrganisationHandler,
+  useBrandHandler,
+} from '../agents/brandTools'
 import { useRef } from 'react'
 import { usePlatformAgentTools } from '@purescience/platform-ui/bridge/react/usePlatformAgentTools'
 import {
@@ -100,8 +107,13 @@ export function usePureSiteAgentTools(
         writeStylesHandler(contextRef.current, invoke.arguments ?? {}),
       setAssetRole: async invoke =>
         setAssetRoleHandler(contextRef.current, invoke.arguments ?? {}),
+      listBrands: async () => listBrandsHandler(contextRef.current),
       useBrand: async invoke =>
         useBrandHandler(contextRef.current, invoke.arguments ?? {}),
+      proposeBrandToOrganisation: async invoke =>
+        proposeBrandToOrganisationHandler(contextRef.current, invoke.arguments ?? {}),
+      proposeSamplesToOrganisation: async invoke =>
+        proposeSamplesToOrganisationHandler(contextRef.current, invoke.arguments ?? {}),
       makeImage: async invoke =>
         makeImageHandler(contextRef.current, invoke.arguments ?? {}),
       checkSite: async () => checkSiteHandler(contextRef.current),

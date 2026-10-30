@@ -100,6 +100,8 @@ export function SiteBoardView({
   onPublish,
   onExport,
   exporting,
+  brandChip,
+  onOpenBrand,
 }: {
   document: SiteDocument
   pages: SitePage[]
@@ -169,6 +171,10 @@ export function SiteBoardView({
   onExport: (format: 'pdf' | 'png') => void
   exporting: boolean
   onPublish: () => void
+  /** The brand the site is in, as the toolbar says it; null hides the chip. */
+  brandChip: { label: string; title: string } | null
+  /** The brand sheet: which brand, and "Propose to organisation…". */
+  onOpenBrand: () => void
 }): React.ReactElement {
   // The site map used to be a column of cards here. The links in the content
   // are the map now, so this strip opens only for what is not a page: the
@@ -596,6 +602,11 @@ export function SiteBoardView({
           >
             {verificationBadge(verification)}
           </Badge>
+          {brandChip ? (
+            <BrandChip type="button" title={brandChip.title} onClick={onOpenBrand}>
+              {brandChip.label}
+            </BrandChip>
+          ) : null}
           <Sep aria-hidden />
           <ToolbarButton type="button" onClick={onOpenHtml}>
             HTML
@@ -1718,6 +1729,10 @@ const DraftChip = styled.button.attrs(chrome('meta'))<{ $live: boolean }>`
     border-radius: 50%;
     background: ${({ $live }) => ($live ? 'var(--pure-chrome-muted)' : 'var(--pure-attention-text)')};
   }
+`
+/** The brand the site is in; opens the brand sheet. */
+const BrandChip = styled.button.attrs(chrome('meta'))`
+  && { ${quietStatus} color: var(--platform-colors-text); }
 `
 /** How many pages the writing promises that nobody has built. */
 const PromisedChip = styled.button.attrs(chrome('meta'))`

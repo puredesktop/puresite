@@ -62,6 +62,11 @@ interface NewSiteWizardProps {
   onTarget: (target: TargetProfile) => void
   look: string
   onLook: (look: string) => void
+  /**
+   * The organisation's house style, when there is one: offered as the first
+   * look, and the one a new site starts in. `line` says so in words.
+   */
+  houseStyle: { name: string; line: string } | null
   material: MaterialItem[]
   previews: Record<string, string>
   onAddFiles: () => void
@@ -82,6 +87,7 @@ export function NewSiteWizard({
   onTarget,
   look,
   onLook,
+  houseStyle,
   material,
   previews,
   onAddFiles,
@@ -198,7 +204,10 @@ export function NewSiteWizard({
         <Field>
           <Label>Look</Label>
           <Looks>
-            {LOOKS.map(option => (
+            {(houseStyle
+              ? [{ id: 'house', label: 'House style', note: houseStyle.name }, ...LOOKS]
+              : LOOKS
+            ).map(option => (
               <LookButton
                 key={option.id}
                 type="button"
@@ -211,6 +220,7 @@ export function NewSiteWizard({
               </LookButton>
             ))}
           </Looks>
+          {houseStyle && look === 'house' ? <Hint>{houseStyle.line}.</Hint> : null}
           <Hint>
             A file marked <em>design reference</em> always wins — the site is
             drawn to match it.

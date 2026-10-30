@@ -274,3 +274,24 @@ export async function renderReviewPage(htmlPath: string, outputPath: string, for
     }])
   }
 }
+
+// ---- Brands ---------------------------------------------------------------
+
+/**
+ * The suite's brands: the organisation's house style (its default marked),
+ * the workspace's Brands folder and the person's own. All of it is off on an
+ * older shell or PureCloud (`brandsOffered()` false): then the app keeps
+ * working from brand paths alone, as before.
+ */
+export {
+  brandsOffered,
+  listBrands,
+  getBrand,
+  defaultBrand,
+  proposeBrand,
+  proposeBrandSamples,
+  onBrandsChanged,
+  type BrandEntry,
+  type BrandDetail,
+  type BrandProposalAnswer,
+} from '@purescience/platform-ui/bridge/brands.mjs'

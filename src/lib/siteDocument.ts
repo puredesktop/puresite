@@ -12,6 +12,7 @@
  * are real, and an agent can be handed one page without the rest.
  */
 import { withSiteFoundation } from './siteFoundation'
+import { parseSiteBrand, type SiteBrand } from './siteBrand'
 import {
   DEFAULT_HOME_PAGE,
   DEFAULT_SITE_TITLE,
@@ -76,8 +77,10 @@ export interface SiteManifest {
   publishTools?: string[]
   /** Roughly how many pages drafting should aim for. */
   pageCount?: number
-  /** The look chosen in the wizard. */
+  /** The look chosen in the wizard (`house` = the organisation's house style). */
   look?: string
+  /** The brand the stylesheet's brand block came from, and how it got there. */
+  brand?: SiteBrand
   published?: PublishedRecord
 }
 
@@ -273,6 +276,7 @@ export function parseSiteManifest(text: string): SiteManifest {
     const parsed = JSON.parse(text) as Partial<SiteManifest>
     const goal = typeof parsed.goal === 'string' ? parsed.goal : undefined
     const published = parsePublished(parsed.published)
+    const brand = parseSiteBrand(parsed.brand)
     return {
       title: typeof parsed.title === 'string' ? parsed.title : base.title,
       pages: Array.isArray(parsed.pages)
@@ -299,6 +303,7 @@ export function parseSiteManifest(text: string): SiteManifest {
         ? { look: parsed.look }
         : {}),
       ...(goal ? { goal } : {}),
+      ...(brand ? { brand } : {}),
       ...(published ? { published } : {}),
     }
   } catch {

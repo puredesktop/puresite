@@ -179,11 +179,16 @@ the site is made in THAT look, unmistakably. The method is the suite's shared
 
 1. **Look at the reference first** with `view_image` and its absolute path —
    never the Computer tool, never from its filename.
-2. **A saved brand comes first.** If there is a `.designsystem.json` for the
-   organisation (PureSlides' `saveLookAsBrand`, Canvas or PureDesign write
-   one, usually in the workspace's `Brands/` folder), `useBrand` puts it on
-   the site: fonts self-hosted in `assets/`, logos and references marked,
-   `--brand-*` properties at the top of `styles/site.css`.
+2. **A saved brand comes first.** `listBrands` names every brand this person
+   can use: the organisation's (its house style marked `default: true`, with
+   its sample image paths), the workspace's `Brands/` folder and their own.
+   `useBrand` takes one by its id from that list or by the absolute path of a
+   `.designsystem.json` (PureSlides' `saveLookAsBrand`, Canvas or PureDesign
+   write one) and puts it on the site: fonts self-hosted in `assets/`, logos
+   and references marked, `--brand-*` properties in a brand block at the top
+   of `styles/site.css`, and the site remembers which brand it is in
+   (`getSiteContext` reports it as `brand`). On an older desktop `listBrands`
+   says it cannot list; `useBrand` then takes a path.
 3. **Otherwise read it off the pixels** into `writeStyles`: the palette by
    role (ground, text, muted, accent for the one primary button, a second
    accent such as a headline's second-colour line, a highlight for small
@@ -224,6 +229,35 @@ rule is the suite's shared **Copy comes from the brief**, section 8 of the
   from (in your reply), and fix any line that has none. `checkResponsive`
   adds `copyNotes` for cards holding only a word or two: advice, never part
   of `clean`.
+
+## The organisation's house style
+
+When the person works in an organisation with a house style, that is the look
+whenever they give no other:
+
+- **The default comes first.** A new site starts in it by itself: the app puts
+  it on (the same path as `useBrand`) and says so ("In pure.science, your
+  organisation's house style"). Picking another look in the new-site wizard
+  takes it off again. For a site with no brand, `listBrands` and then
+  `useBrand` with the default's id.
+- **Look at its sample images first** with `view_image` (their paths are in
+  `listBrands` and in `useBrand`'s answer, and they are in `assets/` as
+  references), then design in it, then compare your render with them.
+- **A person's reference still wins:** an image they attach, a brand they
+  name, or a look they ask for.
+- **Say which brand you used.**
+- **Keep the brand block.** A stylesheet you write whole keeps the block
+  between `brand:start` and `brand:end` (the app puts it back if you drop it);
+  write the rest with its `--brand-*` properties.
+- **Propose to the organisation.** `proposeBrandToOrganisation` sends a saved
+  brand (by id or path; the site's own by default) for an administrator to
+  approve; it must carry at least one sample image.
+  `proposeSamplesToOrganisation` sends pictures of work that shows the house
+  style well: the site's pages captured as PNG (the ticked ones or the one on
+  screen, at 1280 unless you give `widths`) or images you name by path. The
+  app's "Propose to organisation…" (the brand chip in the toolbar) does the
+  same. Pass the answer or the refusal on in plain words; an administrator
+  decides.
 
 ## In scale at every width
 
