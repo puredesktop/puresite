@@ -80,3 +80,21 @@ export async function readSitePackage(root: string, files: PackageFiles): Promis
   return { title: manifest.title, manifest, styles, collections,
     pages: entries.length ? Object.fromEntries(entries) : createDefaultSiteDocument().pages }
 }
+
+/** Include nested public material such as assets/fonts, with package-relative names. */
+export async function listAssetFiles(root: string, list: PackageFiles['list']): Promise<{ name: string; bytes?: number }[]> {
+  const files: { name: string; bytes?: number }[] = []
+  const visit = async (folder: string): Promise<void> => {
+    const listing = await list(`${root}/${SITE_ASSETS_DIR}${folder ? `/${folder}` : ''}`) as {
+      entries?: { name?: string; isDirectory?: boolean; size?: number }[]
+    }
+    for (const entry of listing?.entries ?? []) {
+      if (!entry.name || entry.name === '.' || entry.name === '..' || entry.name.includes('/')) continue
+      const name = folder ? `${folder}/${entry.name}` : entry.name
+      if (entry.isDirectory) await visit(name)
+      else files.push({ name, bytes: entry.size })
+    }
+  }
+  await visit('')
+  return files
+}

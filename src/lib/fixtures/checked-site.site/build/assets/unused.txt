@@ -1,0 +1,1 @@
+An old asset that must be removed on the next build.

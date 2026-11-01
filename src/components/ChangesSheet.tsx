@@ -104,6 +104,30 @@ export function ChangesSheet({
             <Empty>Nothing. What is here is exactly what readers have.</Empty>
           ) : (
             <>
+              {draft.incomplete ? (
+                <Row>
+                  <div className="what">
+                    <span className="name">Comparison incomplete</span>
+                    {draft.comparisonNotes.map(note => <span key={note}>{note}</span>)}
+                  </div>
+                </Row>
+              ) : null}
+              {draft.stylingChanged ? (
+                <Row>
+                  <div className="what">
+                    <span className="name">Styling changed</span>
+                    <span className="path">styles/site.css</span>
+                  </div>
+                </Row>
+              ) : null}
+              {draft.assetsChanged.map(path => (
+                <Row key={path}>
+                  <div className="what">
+                    <span className="name">Asset changed</span>
+                    <span className="path">{path}</span>
+                  </div>
+                </Row>
+              ))}
               {group('New', draft.added, 'new', 'pages nobody has seen')}
               {group('Changed', draft.edited, 'edit', 'pages that read differently')}
               {group(
@@ -228,6 +252,7 @@ const Row = styled.div`
   .what {
     flex: 1;
     min-width: 0;
+    overflow-wrap: anywhere;
     display: flex;
     flex-direction: column;
     gap: 2px;

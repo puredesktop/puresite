@@ -55,6 +55,9 @@ export interface PublishedRecord {
    * moved since without asking the network.
    */
   pages?: Record<string, string>
+  /** Fingerprints of the shared stylesheet and the actual published asset bytes. */
+  styles?: string
+  assets?: Record<string, string>
 }
 
 export interface SiteManifest {
@@ -250,12 +253,21 @@ export function isUntouchedStarter(document: SiteDocument): boolean {
   )
 }
 
-/** A published record that is usable, or nothing — never a partial one. */
+/** Historical comparison fields are optional; their absence must survive reload. */
+function fingerprintMap(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  if (!Object.values(raw).every(value => typeof value === 'string')) return undefined
+  return { ...raw as Record<string, string> }
+}
+
+/** Keep valid host records even when their comparison evidence is incomplete. */
 function parsePublished(raw: unknown): PublishedRecord | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const record = raw as Partial<PublishedRecord>
   if (typeof record.service !== 'string' || !record.service) return undefined
   if (typeof record.slug !== 'string' || !record.slug) return undefined
+  const assets = fingerprintMap(record.assets)
+  const pages = fingerprintMap(record.pages)
   return {
     service: record.service,
     slug: record.slug,
@@ -264,9 +276,9 @@ function parsePublished(raw: unknown): PublishedRecord | undefined {
       : {}),
     ...(typeof record.url === 'string' && record.url ? { url: record.url } : {}),
     ...(typeof record.at === 'string' && record.at ? { at: record.at } : {}),
-    ...(record.pages && typeof record.pages === 'object'
-      ? { pages: { ...(record.pages as Record<string, string>) } }
-      : {}),
+    ...(typeof record.styles === 'string' ? { styles: record.styles } : {}),
+    ...(assets !== undefined ? { assets } : {}),
+    ...(pages !== undefined ? { pages } : {}),
   }
 }
 

@@ -16,7 +16,7 @@ import {
 import { openExternalUrl as openPlatformExternalUrl } from '@purescience/platform-ui/bridge/os'
 import { openPlatformFolderDialog } from '@purescience/platform-ui/bridge/dialog'
 import { registerPlatformAppObject } from '@purescience/platform-ui/bridge/documents'
-import { SITE_APP_SLUG } from '../constants'
+import { SITE_APP_SLUG, SITE_BUILD_DIR } from '../constants'
 
 export { bridge }
 
@@ -99,6 +99,17 @@ export async function createFolder(
     }
     at = `${at}/${segment}`
   }
+}
+
+/** Replace generated build output; failure to clear it must stop the build. */
+export async function resetBuildFolder(root: string): Promise<void> {
+  const path = `${root}/${SITE_BUILD_DIR}`
+  try {
+    await deletePlatformFile(path, true)
+  } catch (error) {
+    if (!/ENOENT|no such file|not found|does not exist/i.test(String(error))) throw error
+  }
+  await createFolder(root, SITE_BUILD_DIR)
 }
 
 /** Delete a file in the package; a file already gone is not a failure. */

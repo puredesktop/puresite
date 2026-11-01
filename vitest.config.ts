@@ -5,5 +5,9 @@ export default defineConfig({
     // The document model reads composition geometry out of HTML, so the
     // tests need a DOMParser.
     environment: 'happy-dom',
+    // Fixture HTML is parsed for file contracts; it must never load remote resources.
+    environmentOptions: {
+      happyDOM: { settings: { disableCSSFileLoading: true, disableJavaScriptFileLoading: true, disableIframePageLoading: true, handleDisabledFileLoadingAsSuccess: true } },
+    },
   },
 })

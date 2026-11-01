@@ -12,9 +12,10 @@
  * page to look at it beside the draft is a separate, deliberate act.
  */
 import type { PublishedRecord, SiteDocument } from './siteDocument'
+import { requiredAssetNames } from './buildSite'
 import { urlPathFor } from './siteDocument'
 
-export type PageState = 'new' | 'changed' | 'same' | 'removed'
+export type PageState = 'new' | 'changed' | 'same' | 'removed' | 'unknown'
 
 export interface PageDifference {
   page: string
@@ -32,7 +33,12 @@ export interface DraftState {
   edited: string[]
   /** Pages a reader can reach today and could not after publishing. */
   removed: string[]
-  /** True when what is here is exactly what is published. */
+  stylingChanged: boolean
+  assetsChanged: string[]
+  /** Missing historical evidence or unreadable current required asset bytes. */
+  incomplete: boolean
+  comparisonNotes: string[]
+  /** True only when all comparison data is complete and matches. */
   matchesLive: boolean
 }
 
@@ -65,9 +71,10 @@ export function fingerprintPages(pages: Record<string, string>): Record<string, 
 export function draftState(
   document: SiteDocument,
   published: PublishedRecord | undefined,
+  assetFingerprints?: Record<string, string>,
 ): DraftState {
   const live = published?.pages
-  if (!live || !Object.keys(live).length) {
+  if (!published) {
     return {
       neverPublished: true,
       pages: Object.keys(document.pages).map(page => ({
@@ -78,6 +85,10 @@ export function draftState(
       added: Object.keys(document.pages),
       edited: [],
       removed: [],
+      stylingChanged: false,
+      assetsChanged: [],
+      incomplete: false,
+      comparisonNotes: [],
       matchesLive: false,
     }
   }
@@ -86,29 +97,45 @@ export function draftState(
   const added: string[] = []
   const edited: string[] = []
   for (const [page, html] of Object.entries(document.pages)) {
-    const was = live[page]
-    const state: PageState = !was ? 'new' : was === pageFingerprint(html) ? 'same' : 'changed'
+    const was = live?.[page]
+    const state: PageState = !live ? 'unknown' : !was ? 'new' : was === pageFingerprint(html) ? 'same' : 'changed'
     pages.push({ page, url: urlPathFor(page), state })
-    if (state === 'new') added.push(page)
+    if (state === 'new' && live) added.push(page)
     if (state === 'changed') edited.push(page)
   }
 
-  const removed = Object.keys(live).filter(page => document.pages[page] === undefined)
+  const removed = Object.keys(live ?? {}).filter(page => document.pages[page] === undefined)
   for (const page of removed) pages.push({ page, url: urlPathFor(page), state: 'removed' })
 
+  const comparisonNotes: string[] = []
+  if (!live) comparisonNotes.push('The last publication has no page comparison data.')
+  if (published.styles === undefined) comparisonNotes.push('The last publication has no styling comparison data.')
+  if (published.assets === undefined) comparisonNotes.push('The last publication has no asset comparison data.')
+  const paths = requiredAssetNames(document).map(name => `assets/${name}`)
+  const unreadable = paths.filter(path => assetFingerprints?.[path] === undefined)
+  if (unreadable.length) comparisonNotes.push(`Required asset bytes are not available for comparison: ${unreadable.join(', ')}.`)
+  const stylingChanged = published.styles !== undefined && published.styles !== pageFingerprint(document.styles)
+  const assetsChanged = published.assets === undefined ? [] : [...new Set([...paths, ...Object.keys(published.assets)])].sort().filter(path =>
+    !paths.includes(path) || published.assets?.[path] === undefined ||
+    (assetFingerprints?.[path] !== undefined && published.assets?.[path] !== assetFingerprints[path]))
+  const incomplete = comparisonNotes.length > 0
   return {
     neverPublished: false,
+    stylingChanged,
+    assetsChanged,
+    incomplete,
+    comparisonNotes,
     pages,
     added,
     edited,
     removed,
-    matchesLive: !added.length && !edited.length && !removed.length,
+    matchesLive: !incomplete && !stylingChanged && !assetsChanged.length && !added.length && !edited.length && !removed.length,
   }
 }
 
 /** The state of one page, for the map and the page panel. */
 export function stateOf(state: DraftState, page: string): PageState {
-  return state.pages.find(entry => entry.page === page)?.state ?? 'new'
+  return state.pages.find(entry => entry.page === page)?.state ?? (state.neverPublished ? 'new' : 'unknown')
 }
 
 /** Said the way a person would say it, for the toolbar. */
@@ -119,6 +146,9 @@ export function draftSummary(state: DraftState): string {
   if (state.added.length) parts.push(`${state.added.length} new`)
   if (state.edited.length) parts.push(`${state.edited.length} changed`)
   if (state.removed.length) parts.push(`${state.removed.length} gone`)
+  if (state.stylingChanged) parts.push('styling changed')
+  if (state.assetsChanged.length) parts.push(`${state.assetsChanged.length} asset${state.assetsChanged.length === 1 ? '' : 's'} changed`)
+  if (state.incomplete) parts.push('comparison incomplete')
   return `Draft · ${parts.join(', ')}`
 }
 

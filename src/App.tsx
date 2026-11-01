@@ -64,6 +64,9 @@ import {
   isDefaultSiteTitle,
   isUntouchedStarter,
   orderedPages,
+  parseSiteManifest,
+  serializeSiteManifest,
+  type PublishedRecord,
   setPageTitle as applyPageTitle,
   titleFromPage,
   type SiteDocument,
@@ -90,11 +93,11 @@ import {
   previewDocument,
   referencedAssets,
 } from './lib/preview'
-import { checkSite, planBuild, type BuildResult } from './lib/buildSite'
+import { checkSite, type BuildResult } from './lib/buildSite'
 import { repointAsset } from './lib/assetNames'
-import { draftState, fingerprintPages } from './lib/draftState'
-import { linkGraph, repointPromise, shipPage, unlinkPromise } from './lib/siteLinks'
-import { llmsText, robotsText, sitemapXml } from './lib/siteLenses'
+import { usePublicationAssets } from './hooks/usePublicationAssets'
+import { linkGraph, repointPromise, unlinkPromise } from './lib/siteLinks'
+import { effectiveSiteAddress, runSiteBuild, sendSiteOutput, type SiteOutputInput } from './lib/siteOutput'
 import {
   checkCollections,
   dataProviderFor,
@@ -102,7 +105,7 @@ import {
   type Collection,
 } from './lib/siteData'
 import { siteDesignGuide, type ReferenceImage } from './lib/draftSite'
-import { mapConcurrent, readSitePackage, serializeSitePackage } from './lib/packageIO'
+import { listAssetFiles, mapConcurrent, readSitePackage, serializeSitePackage } from './lib/packageIO'
 import { siteFontFiles } from './lib/siteFoundation'
 import { withBrandBlock } from './lib/brandStyles'
 import {
@@ -125,7 +128,7 @@ import {
   loadPublishServices,
   type PublishService,
 } from './lib/publishServices'
-import { publishSite, PublishCancelled, type PublishFile } from './lib/publish'
+import { PublishCancelled } from './lib/publish'
 import { mergeMaterial, notesFrom, type MaterialItem } from './lib/material'
 import type { AssetNote, AssetRole } from './lib/assetNotes'
 import {
@@ -287,6 +290,7 @@ export function App(): React.ReactElement {
   }, [])
 
   const [material, setMaterial] = useState<MaterialItem[]>([])
+  const [publicationAssetRevision, setPublicationAssetRevision] = useState(0)
   const [previews, setPreviews] = useState<Record<string, string>>({})
   const [status, setStatus] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -326,6 +330,8 @@ export function App(): React.ReactElement {
     message: '',
   })
   const [services, setServices] = useState<PublishService[]>([])
+  const servicesRef = useRef(services)
+  servicesRef.current = services
   const [allTools, setAllTools] = useState<PublishService[]>([])
   const [serviceId, setServiceId] = useState(DEFAULT_SERVICE_ID)
   const serviceIdRef = useRef(serviceId)
@@ -375,6 +381,7 @@ export function App(): React.ReactElement {
   const boundDocumentRef = useRef<SiteDocument>(document)
   const draftRunRef = useRef(0)
   const openSitePathRef = useRef<((path: string) => Promise<void>) | null>(null)
+  const refreshAssetEvidenceRef = useRef<((path: string) => void) | null>(null)
 
   const lifecycle = useDocumentLifecycle({
     appSlug: SITE_APP_SLUG,
@@ -383,9 +390,16 @@ export function App(): React.ReactElement {
     suggestedTitle: document.title,
     debounceMs: AUTOSAVE_DELAY_MS,
     onExternalChange: ({ path, dirty }: { path: string; dirty: boolean }) => {
-      if (dirty) return
+      // runBuild refreshes the comparison once, when its own writes are done.
       if (buildingRef.current) return
+      // Asset bytes can change without a filename/size change, even while text
+      // edits are dirty. Refresh comparison without replacing those edits.
+      setPublicationAssetRevision(revision => revision + 1)
       if (openingRef.current) return
+      if (dirty) {
+        refreshAssetEvidenceRef.current?.(path)
+        return
+      }
       void openSitePathRef.current?.(path)
     },
     /**
@@ -578,11 +592,12 @@ export function App(): React.ReactElement {
     return map
   }, [document.pages])
 
+  const publicationAssets = usePublicationAssets(document, boundPathRef.current, material, publicationAssetRevision)
   const assetNames = useMemo(() => material.map(item => item.name), [material])
 
   const findings = useMemo(
     () => [
-      ...checkSite(document, assetNames, linksByPage),
+      ...checkSite({ ...document, manifest: { ...document.manifest, assets: notesFrom(material) } }, assetNames, linksByPage),
       // A manifest the host refuses fails the whole publish, so its rules are
       // checked beside every other thing that will be wrong once it is live.
       ...checkCollections(document.collections).map(finding => ({
@@ -590,7 +605,7 @@ export function App(): React.ReactElement {
         code: `data:${finding.code}`,
       })),
     ],
-    [document, assetNames, linksByPage],
+    [document, material, assetNames, linksByPage],
   )
 
   // A page that stops existing must not stay selected, or the stage renders
@@ -612,14 +627,8 @@ export function App(): React.ReactElement {
       const generation = ++materialGeneration.current
       const current = () => generation === materialGeneration.current && boundPathRef.current === path
       try {
-        const listing = await listFiles(`${path}/${SITE_ASSETS_DIR}`) as {
-          entries?: { name?: string; isDirectory?: boolean; size?: number }[]
-        }
+        const files = await listAssetFiles(path, listFiles)
         if (!current()) return
-        const files = (listing?.entries ?? [])
-          .filter((entry): entry is { name: string; isDirectory?: boolean; size?: number } =>
-            typeof entry?.name === 'string' && !entry.isDirectory)
-          .map(entry => ({ name: entry.name, bytes: entry.size }))
         const merged = mergeMaterial(files, notes)
         materialRef.current = merged
         setMaterial(merged)
@@ -788,7 +797,7 @@ export function App(): React.ReactElement {
 
         // Only the images the home page actually uses, so a site with a
         // folder of photographs does not turn its card into megabytes.
-        const names = [...new Set([...referencedAssets(html), ...referencedAssets(styles)])]
+        const names = [...new Set([...referencedAssets(html), ...referencedAssets(styles, SITE_STYLESHEET)])]
         const loaded = await mapConcurrent(names, async name => {
           const dataUrl = await readBinaryDataUrl(
             `${item.path}/${SITE_ASSETS_DIR}/${name}`,
@@ -1404,7 +1413,7 @@ export function App(): React.ReactElement {
   const findingsFor = useCallback(
     (current: SiteDocument, assets: string[]) => [
       ...checkSite(
-        current,
+        { ...current, manifest: { ...current.manifest, assets: notesFrom(materialRef.current) } },
         assets,
         Object.fromEntries(
           Object.entries(current.pages).map(([path, html]) => [
@@ -1470,6 +1479,7 @@ export function App(): React.ReactElement {
    */
   const measureRunRef = useRef<Promise<void> | null>(null)
   const measureAgainRef = useRef(false)
+  const assetRefreshRef = useRef<Promise<void> | null>(null)
   const measureSite = useCallback((): Promise<void> => {
     if (measureRunRef.current) {
       measureAgainRef.current = true
@@ -1540,6 +1550,23 @@ export function App(): React.ReactElement {
     return measureRunRef.current
   }, [])
 
+  /**
+   * A page's evidence does not cover the bytes behind an asset path, so a
+   * replacement on disk means measuring again from fresh previews. Checks wait
+   * for this, and a measure already running saw the old picture.
+   */
+  refreshAssetEvidenceRef.current = (path: string): void => {
+    if (boundPathRef.current !== path) return
+    assetRefreshRef.current = (async () => {
+      await loadMaterial(path)
+      await measureRunRef.current?.catch(() => {})
+      if (boundPathRef.current !== path) return
+      evidenceRef.current = {}
+      setEvidence({})
+      void measureSite()
+    })()
+  }
+
   // Re-measure a moment after anything the render depends on changes, when
   // the app becomes visible again, and when a web font finishes loading.
   useEffect(() => {
@@ -1594,108 +1621,40 @@ export function App(): React.ReactElement {
     return path
   }, [writeSiteFonts])
 
-  const runBuild = useCallback(async (): Promise<BuildResult & { buildPath: string }> => {
-    const root = boundPathRef.current
-    if (!root)
-      throw new Error(
-        'Save the site first, so there is a package to build into.',
-      )
-    // Nothing leaves the app from a preview that is not the site: the guard
-    // re-checks in a visible frame first, then refuses out loud with the
-    // reasons — a broken link, a page that scrolls sideways, an asset the
-    // preview could not show.
-    await lifecycleRef.current.flush({ throwOnError: true })
-    await writeSiteFonts(root)
-    const guard = await ensureExportable(() => verifyNow().state, measureSite)
-    if (!guard.ok) {
-      const verdict = verifyNow()
-      throw new SiteExportRefused(exportRefusalMessage(guard, verdict), verdict)
-    }
-    const current = documentRef.current
-    const plan = planBuild(
-      current,
-      materialRef.current.map(item => item.name),
-    )
+  const outputInput = useCallback((): SiteOutputInput => ({
+    save: async () => {
+      const root = boundPathRef.current
+      if (!root) throw new Error('Save the site first, so there is a package to build into.')
+      await lifecycleRef.current.flush({ throwOnError: true })
+      if (boundPathRef.current !== root) throw new Error('The site changed while it was being saved. Check it again before building or publishing.')
+      await writeSiteFonts(root)
+    },
+    readSnapshot: () => {
+      const current = documentRef.current
+      return {
+        root: boundPathRef.current ?? '',
+        document: { ...current, manifest: { ...current.manifest, assets: notesFrom(materialRef.current) } },
+        availableAssets: materialRef.current.map(item => item.name),
+        serviceId: serviceIdRef.current,
+        address: effectiveSiteAddress(current, serviceIdRef.current, servicesRef.current.find(service => service.id === serviceIdRef.current)),
+      }
+    },
+    verify: async () => {
+      await assetRefreshRef.current
+      const guard = await ensureExportable(() => verifyNow().state, measureSite)
+      if (!guard.ok) throw new SiteExportRefused(exportRefusalMessage(guard, verifyNow()), verifyNow())
+    },
+  }), [measureSite, verifyNow, writeSiteFonts])
 
+  const runBuild = useCallback(async (): Promise<BuildResult & { buildPath: string }> => {
     buildingRef.current = true
     try {
-      await createFolder(root, SITE_BUILD_DIR)
-      for (const page of orderedPages(current)) {
-        const folder = page.path.includes('/')
-          ? page.path.slice(0, page.path.lastIndexOf('/'))
-          : ''
-        if (folder) {
-          await createFolder(`${root}/${SITE_BUILD_DIR}`, folder)
-        }
-        // What the site promises itself is for the person writing it. A
-        // reader gets the sentence with the words intact and no link into
-        // nothing, so a page still to be built never ships as a dead end.
-        await writeTextFile(
-          `${root}/${SITE_BUILD_DIR}/${page.path}`,
-          shipPage(current.pages[page.path] ?? '', page.path, Object.keys(current.pages)),
-        )
-      }
-      // What a machine is handed, written from the same sentences as the
-      // pages: a plain-text map for assistants, and — once the site has an
-      // address — where every page lives, for anything that crawls.
-      await writeTextFile(
-        `${root}/${SITE_BUILD_DIR}/llms.txt`,
-        llmsText(current, linkGraph(current)),
-      )
-      const base = current.manifest.published?.url
-      if (base) {
-        await writeTextFile(`${root}/${SITE_BUILD_DIR}/sitemap.xml`, sitemapXml(current, base))
-        await writeTextFile(`${root}/${SITE_BUILD_DIR}/robots.txt`, robotsText(base))
-      }
-
-      await createFolder(`${root}/${SITE_BUILD_DIR}`, 'styles')
-      await writeTextFile(
-        `${root}/${SITE_BUILD_DIR}/${SITE_STYLESHEET}`,
-        current.styles,
-      )
-
-      // The data manifest, when this site holds records and the host it is
-      // going to can store them. Written at build time rather than kept in the
-      // package by hand, so the app's model stays the single source.
-      const provider = dataProviderFor(serviceIdRef.current)
-      if (current.collections.length && provider) {
-        const folder = provider.manifestPath.includes('/')
-          ? provider.manifestPath.slice(
-              0,
-              provider.manifestPath.lastIndexOf('/'),
-            )
-          : ''
-        if (folder) await createFolder(`${root}/${SITE_BUILD_DIR}`, folder)
-        await writeTextFile(
-          `${root}/${SITE_BUILD_DIR}/${provider.manifestPath}`,
-          provider.render(current.collections),
-        )
-      }
-
-      // The assets a page actually references, copied as bytes. Without this the
-      // build is pages that point at images which are not there — which looks
-      // fine in the preview, because the preview inlines them.
-      if (plan.assets.length) {
-        await createFolder(`${root}/${SITE_BUILD_DIR}`, SITE_ASSETS_DIR)
-        for (const name of plan.assets) {
-          try {
-            const binary = await readBinaryBase64(
-              `${root}/${SITE_ASSETS_DIR}/${name}`,
-            )
-            await writeBinaryFile(
-              `${root}/${SITE_BUILD_DIR}/${SITE_ASSETS_DIR}/${name}`,
-              binary.base64,
-            )
-          } catch {
-            // Named by a page but unreadable: checkSite already reports it.
-          }
-        }
-      }
-      return { ...plan, buildPath: `${root}/${SITE_BUILD_DIR}` }
+      return await runSiteBuild(outputInput())
     } finally {
       buildingRef.current = false
+      setPublicationAssetRevision(revision => revision + 1)
     }
-  }, [measureSite, verifyNow])
+  }, [outputInput])
 
   const exportReview = useCallback(async (input: { format: 'pdf' | 'png'; page?: string; width?: number; choosePath?: boolean }) => {
     if (exportBusy.current) throw new Error('An export is already running. Wait for it to finish.')
@@ -2098,15 +2057,7 @@ export function App(): React.ReactElement {
     }
   }, [runBuild])
 
-  /**
-   * Take the site to the chosen host.
-   *
-   * The pages, stylesheet and data manifest are sent from memory — the same
-   * strings the build step writes — and asset bytes are read from the
-   * package's `assets/` folder at send time. Not from the previews: those
-   * exist only for images, and a font sent from memory it was never read
-   * into is a font that never uploads.
-   */
+  /** The explicit human action sends the same checked preparation as build/. */
   const onPublishSend = useCallback(async () => {
     const root = boundPathRef.current
     const service = services.find(option => option.id === serviceId)
@@ -2118,63 +2069,6 @@ export function App(): React.ReactElement {
       message: 'Checking the site…',
     }))
     try {
-      // The same guard the build runs: nothing goes live from a preview that
-      // is not the site. Re-check first, refuse out loud second.
-      await lifecycleRef.current.flush()
-      const guard = await ensureExportable(() => verifyNow().state, measureSite)
-      if (!guard.ok) {
-        setPublish(state => ({
-          ...state,
-          phase: 'error',
-          message: exportRefusalMessage(guard, verifyNow()),
-        }))
-        return
-      }
-      setPublish(state => ({ ...state, message: 'Publishing…' }))
-      const current = documentRef.current
-      const files: PublishFile[] = []
-      for (const page of orderedPages(current)) {
-        files.push({
-          path: page.path,
-          content: current.pages[page.path] ?? '',
-          encoding: 'text',
-          contentType: 'text/html; charset=utf-8',
-        })
-      }
-      files.push({
-        path: SITE_STYLESHEET,
-        content: current.styles,
-        encoding: 'text',
-        contentType: 'text/css; charset=utf-8',
-      })
-      // The data manifest ships with the site, or the collections do not
-      // exist on the host and every form posts into a 404.
-      const provider = dataProviderFor(service.id)
-      if (current.collections.length && provider) {
-        files.push({
-          path: provider.manifestPath,
-          content: provider.render(current.collections),
-          encoding: 'text',
-          contentType: 'application/json',
-        })
-      }
-      for (const item of materialRef.current) {
-        try {
-          const binary = await readBinaryBase64(
-            `${root}/${SITE_ASSETS_DIR}/${item.name}`,
-          )
-          files.push({
-            path: `${SITE_ASSETS_DIR}/${item.name}`,
-            content: binary.base64,
-            encoding: 'base64',
-            contentType: binary.mimeType || 'application/octet-stream',
-          })
-        } catch {
-          // Unreadable: checkSite already reports anything a page references
-          // that cannot ship.
-        }
-      }
-
       // Update the same URL only where that means something: the same
       // service, and one that says how to update. Anything else publishes
       // fresh rather than failing or updating the wrong host.
@@ -2189,10 +2083,8 @@ export function App(): React.ReactElement {
             }
           : undefined
 
-      const live = await publishSite({
+      const { live, comparison, document: current } = await sendSiteOutput(outputInput(), {
         service,
-        files,
-        displayName: current.title,
         ...(existing ? { existing } : {}),
         onProgress: progress =>
           setPublish(state => ({ ...state, message: progress.message })),
@@ -2201,38 +2093,41 @@ export function App(): React.ReactElement {
       // A republish returns no new claim token — the first one is the only
       // one there will ever be, so it is carried forward, not dropped.
       const claimToken = live.claimToken ?? existing?.claimToken
-      publishedRef.current = {
+      const published: PublishedRecord = {
         service: service.id,
         slug: live.slug,
         ...(claimToken ? { claimToken } : {}),
+        ...(live.siteUrl ? { url: live.siteUrl } : {}),
+        at: new Date().toISOString(),
+        ...comparison,
       }
-      // Written into the manifest through the document lifecycle, so the next
-      // session updates this URL instead of minting a new site.
-      // Where the site went is not an edit: the door lands it, but it is
-      // outside the hash, so it takes no snapshot and never restores.
-      applyDocument(latest => ({
-        ...latest,
-        manifest: {
-          ...latest.manifest,
-          published: {
-            service: service.id,
-            slug: live.slug,
-            ...(claimToken ? { claimToken } : {}),
-            ...(live.siteUrl ? { url: live.siteUrl } : {}),
-            at: new Date().toISOString(),
-            // What was sent, so the app can say afterwards what has moved
-            // since without asking the host.
-            pages: fingerprintPages(latest.pages),
-          },
-        },
-      }))
+      // Keep the live record with the package that was actually sent, even
+      // when the person opened another site while uploads were in flight.
+      let recordError: string | undefined
+      try {
+        if (boundPathRef.current !== root) {
+          const saved = parseSiteManifest(await readTextFile(`${root}/${SITE_MANIFEST_FILE}`))
+          await writeTextFile(`${root}/${SITE_MANIFEST_FILE}`, serializeSiteManifest({ ...saved, published }))
+        }
+        if (boundPathRef.current === root) {
+          publishedRef.current = published
+          // Publishing metadata is outside history and follows the existing lifecycle.
+          applyDocument(latest => ({ ...latest, manifest: { ...latest.manifest, published } }))
+        }
+      } catch (error) {
+        recordError = error instanceof Error ? error.message : String(error)
+      }
+      // A local save error must not hide a successful publication or its one-time claim link.
+      const message = recordError
+        ? `Live at ${live.siteUrl}, but its publishing record could not be saved: ${recordError}`
+        : `Live at ${live.siteUrl}`
       setPublish(state => ({
         ...state,
         phase: 'live',
-        message: `Live at ${live.siteUrl}`,
+        message,
         live,
       }))
-      setStatus(`Published to ${live.siteUrl}`)
+      setStatus(recordError ? message : `Published to ${live.siteUrl}`)
       // A publish leaves a site behind on a host, so it goes in the ledger.
       void recordOperation({
         lane: 'user',
@@ -2257,7 +2152,7 @@ export function App(): React.ReactElement {
           sendError instanceof Error ? sendError.message : String(sendError),
       }))
     }
-  }, [applyDocument, measureSite, serviceId, services, verifyNow])
+  }, [applyDocument, outputInput, serviceId, services])
 
   /**
    * Open the page in the real browser.
@@ -2368,6 +2263,7 @@ export function App(): React.ReactElement {
           <SiteBoardView
             document={document}
             pages={pages}
+            publicationAssets={publicationAssets}
             material={material}
             previews={previews}
             collections={document.collections}

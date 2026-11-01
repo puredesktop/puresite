@@ -21,6 +21,8 @@
  * given the site's look either. What the preview cannot do — show an asset
  * too large to inline — it says (`oversizeAssets`), rather than looking fine.
  */
+import { isAssetReference, localAssetReferences, mapCssUrls, mapSrcset, resolvePagePath } from './siteReferences'
+export { resolvePagePath } from './siteReferences'
 import { SITE_FONT_URLS } from '../fonts/siteFonts'
 import { DEFAULT_HOME_PAGE, MAX_INLINE_BYTES, SITE_STYLESHEET } from '../constants'
 import { relativePrefix } from './siteDocument'
@@ -29,11 +31,11 @@ import { relativePrefix } from './siteDocument'
  * Asset references anywhere they can legally appear.
  *
  * `src=`/`href=` in markup, and `url()` in CSS, each with any depth of `../`
- * prefix, because a page in a subfolder reaches its assets that way and those
+ * prefix or a root-relative slash, because a page in a subfolder reaches its assets that way and those
  * pages are exactly the ones a naive rewrite leaves broken.
  */
-const ASSET_ATTR = /(src|href|poster)=("|')((?:\.\.\/)*)assets\/([^"']+)\2/g
-const ASSET_CSS = /url\((?:"|')?((?:\.\.\/)*)assets\/([^"')]+)(?:"|')?\)/g
+const ASSET_ATTR = /(src|href|poster)=("|')((?:\.\.\/)*|\/)assets\/([^"']+)\2/g
+const ASSET_SRCSET = /\bsrcset=("|')([^"']*)\1/gi
 const LINK_TAG = /<link\b[^>]*>/gi
 const DATA_ATTR = /(src|href|poster)=("|')(data:[^"']+)\2/g
 const DATA_CSS = /url\((?:"|')?(data:[^"')]+)(?:"|')?\)/g
@@ -56,21 +58,6 @@ export interface PreviewInput {
 function attribute(tag: string, name: string): string | null {
   const match = new RegExp(`\\b${name}=("|')([^"']*)\\1`, 'i').exec(tag)
   return match ? match[2] : null
-}
-
-/**
- * Resolve a page-relative or root-relative reference to a package path, the
- * way a browser resolves it on the host: `..` climbs, and cannot climb past
- * the root. `null` for anything absolute or off-site.
- */
-export function resolvePagePath(fromPage: string, href: string): string | null {
-  if (!href || /^[a-z]+:/i.test(href) || href.startsWith('//')) return null
-  const clean = href.split(/[#?]/)[0]
-  if (clean.startsWith('/')) return normalize(clean.replace(/^\//, ''))
-  const base = fromPage.includes('/')
-    ? fromPage.slice(0, fromPage.lastIndexOf('/') + 1)
-    : ''
-  return normalize(base + clean)
 }
 
 /** The `href` of every stylesheet link in a page, in document order. */
@@ -114,6 +101,17 @@ export function stylesheetLinkState(html: string, page: string): StylesheetLinkS
     else state.broken.push({ href, resolved })
   }
   return state
+}
+
+/** Asset lookups strip URL query/fragment syntax and decode filenames as the host does. */
+function assetName(reference: string): string {
+  return resolvePagePath(DEFAULT_HOME_PAGE, `assets/${reference}`)?.replace(/^assets\//, '') ?? reference
+}
+
+function inlineAsset(reference: string, assets: Record<string, string>): string | undefined {
+  const data = assets[assetName(reference)]
+  const fragment = reference.includes('#') ? reference.slice(reference.indexOf('#')) : ''
+  return data ? data + fragment : undefined
 }
 
 function inlineBudget(html: string, assets: Record<string, string>): number {
@@ -175,13 +173,31 @@ export function previewDocument({
 
   if (affordable) {
     out = out.replace(ASSET_ATTR, (match, attr, quote, _up, name) => {
-      const data = assets[name]
+      const data = inlineAsset(name, assets)
       return data ? `${attr}=${quote}${data}${quote}` : match
     })
-    out = out.replace(ASSET_CSS, (match, _up, name) => {
-      const data = assets[name]
-      return data ? `url(${data})` : match
+    out = out.replace(ASSET_SRCSET, (match, quote, value) => {
+      const mapped = mapSrcset(value, href => {
+        const path = resolvePagePath(page, href)
+        if (!path?.startsWith('assets/')) return href
+        const data = assets[path.slice('assets/'.length)]
+        const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : ''
+        return data ? data + fragment : href
+      })
+      return `srcset=${quote}${mapped}${quote}`
     })
+    const css = (source: string): string => mapCssUrls(source, href => {
+      const path = resolvePagePath(DEFAULT_HOME_PAGE, href)
+      if (!path?.startsWith('assets/')) return href
+      const data = assets[path.slice('assets/'.length)]
+      const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : ''
+      return data ? data + fragment : href
+    })
+    out = out.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+      (_whole, open, body, close) => open + css(body) + close)
+    out = out.replace(/(\bstyle\s*=\s*)("|')([\s\S]*?)\2/gi,
+      (_whole, attribute, quote, value) => attribute + quote + css(value) + quote)
+
   }
 
   return out
@@ -199,8 +215,8 @@ function markLinks(html: string, page: string, knownPages: string[]): string {
   const known = new Set(knownPages)
   return html.replace(/<a\b([^>]*)>/gi, (tag, attrs: string) => {
     const href = attribute(attrs, 'href')
-    if (!href || /^[a-z]+:/i.test(href) || href.startsWith('//') || href.startsWith('#')) return tag
-    if (href.startsWith('assets/') || href.includes('styles/site.css')) return tag
+    if (!href || /^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('//') || href.startsWith('#')) return tag
+    if (isAssetReference(href, page) || resolvePagePath(page, href) === SITE_STYLESHEET) return tag
     const target = resolvePagePath(page, href)
     if (!target) return tag
     const state = known.has(target) ? 'built' : 'promised'
@@ -250,8 +266,8 @@ export function internalLinks(html: string, fromPage: string): string[] {
   let match: RegExpExecArray | null
   while ((match = pattern.exec(html))) {
     const href = match[2]
-    if (!href || /^[a-z]+:/i.test(href) || href.startsWith('//')) continue
-    if (href.startsWith('assets/') || href.includes('styles/site.css')) continue
+    if (!href || /^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('//')) continue
+    if (isAssetReference(href, fromPage) || resolvePagePath(fromPage, href) === SITE_STYLESHEET) continue
     // Root-relative still needs the directory-to-index rule: "/about/" is
     // the page about/index.html, and skipping this reported every nav link
     // in the site as broken.
@@ -261,31 +277,9 @@ export function internalLinks(html: string, fromPage: string): string[] {
   return links
 }
 
-/**
- * Resolve `../` and `./` inside a page-relative path.
- *
- * The trailing slash has to be noticed BEFORE splitting: filtering out empty
- * segments is what makes `..` resolution work, and it also throws away the
- * one thing that says "/about/" means a directory's index rather than a file
- * called about.
- */
-function normalize(path: string): string {
-  const directory = path.endsWith('/') || path === ''
-  const parts: string[] = []
-  for (const part of path.split('/')) {
-    if (!part || part === '.') continue
-    if (part === '..') parts.pop()
-    else parts.push(part)
-  }
-  const joined = parts.join('/')
-  if (!joined) return DEFAULT_HOME_PAGE
-  return directory ? `${joined}/${DEFAULT_HOME_PAGE}` : joined
-}
-
 /** Asset paths a page references, as names inside `assets/`. */
-export function referencedAssets(html: string): string[] {
-  const names = new Set<string>()
-  for (const match of html.matchAll(ASSET_ATTR)) names.add(match[4])
-  for (const match of html.matchAll(ASSET_CSS)) names.add(match[2])
-  return [...names]
+export function referencedAssets(source: string, fromFile = DEFAULT_HOME_PAGE): string[] {
+  return localAssetReferences(source, fromFile)
+    .filter(path => path.startsWith('assets/'))
+    .map(path => path.slice('assets/'.length))
 }

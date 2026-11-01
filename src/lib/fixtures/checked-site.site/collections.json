@@ -1,0 +1,1 @@
+[{"name":"enquiries","fields":[{"name":"message","type":"string","maxLength":2000}],"access":{"read":"owner","insert":"public","update":"owner","delete":"owner"}}]

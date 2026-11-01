@@ -52,6 +52,7 @@ export function SiteBoardView({
   document,
   pages,
   material,
+  publicationAssets,
   previews,
   collections,
   dataProvider,
@@ -105,6 +106,7 @@ export function SiteBoardView({
 }: {
   document: SiteDocument
   pages: SitePage[]
+  publicationAssets?: Record<string, string>
   material: MaterialItem[]
   previews: Record<string, string>
   collections: Collection[]
@@ -248,8 +250,8 @@ export function SiteBoardView({
   // What readers have, against what is here. Offline: the fingerprints of
   // the last publish are enough to say what has moved.
   const draft = useMemo(
-    () => draftState(document, document.manifest.published),
-    [document],
+    () => draftState(document, document.manifest.published, publicationAssets),
+    [document, publicationAssets],
   )
   const liveUrl = liveUrlFor(document.manifest.published, selectedPage)
 

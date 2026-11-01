@@ -11,6 +11,7 @@
  * Everything here is pure: the board, the map and the agent tools all read the
  * same graph, so they cannot disagree about what the site is.
  */
+import { isAssetReference } from './siteReferences'
 import { DEFAULT_HOME_PAGE } from '../constants'
 import { resolvePagePath } from './preview'
 import type { SiteDocument } from './siteDocument'
@@ -93,8 +94,8 @@ export function pageLinks(html: string, fromPage: string): SiteLink[] {
   const links: SiteLink[] = []
   for (const match of html.matchAll(ANCHOR)) {
     const href = attribute(match[1]!, 'href')
-    if (!href || /^[a-z]+:/i.test(href) || href.startsWith('//') || href.startsWith('#')) continue
-    if (href.startsWith('assets/') || href.includes('styles/site.css')) continue
+    if (!href || /^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('//') || href.startsWith('#')) continue
+    if (isAssetReference(href, fromPage) || href.includes('styles/site.css')) continue
     const target = resolvePagePath(fromPage, href)
     if (!target) continue
     const at = match.index ?? 0
@@ -218,8 +219,8 @@ export function shipPage(html: string, page: string, existing: Iterable<string>)
   const known = new Set(existing)
   return html.replace(ANCHOR, (whole, attrs: string, inner: string) => {
     const href = attribute(attrs, 'href')
-    if (!href || /^[a-z]+:/i.test(href) || href.startsWith('//') || href.startsWith('#')) return whole
-    if (href.startsWith('assets/') || href.includes('styles/site.css')) return whole
+    if (!href || /^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('//') || href.startsWith('#')) return whole
+    if (isAssetReference(href, page) || href.includes('styles/site.css')) return whole
     const target = resolvePagePath(page, href)
     if (!target || known.has(target)) return whole
     return inner

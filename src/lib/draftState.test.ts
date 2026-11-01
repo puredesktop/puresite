@@ -33,6 +33,8 @@ const published: PublishedRecord = {
   slug: 'awards',
   url: 'https://awards.example/',
   pages: livePages,
+  styles: pageFingerprint(''),
+  assets: {},
 }
 
 describe('pageFingerprint', () => {
@@ -100,5 +102,18 @@ describe('liveUrlFor', () => {
 
   it('has nowhere to point before a first publish', () => {
     expect(liveUrlFor(undefined, 'index.html')).toBeNull()
+  })
+})
+
+describe('whole publication comparison regressions', () => {
+  it('reports a CSS-only edit', () => {
+    const document = site({ 'index.html': '<p>Home</p>' })
+    const record = { ...published, pages: fingerprintPages(document.pages), styles: pageFingerprint(''), assets: {} }
+    document.styles = 'body { color: red }'
+    expect(draftState(document, record).matchesLive).toBe(false)
+  })
+  it('does not call a legacy record complete', () => {
+    const document = site({ 'index.html': '<p>Home</p>' })
+    expect(draftState(document, { ...published, pages: fingerprintPages(document.pages), styles: undefined, assets: undefined }).matchesLive).toBe(false)
   })
 })
