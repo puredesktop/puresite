@@ -50,7 +50,7 @@ export function SiteMapOverlay({
   /** Lift the site back into an older shape. */
   onRestoreRevision: (file: string) => void
   /** Whether each page is new, changed or what readers already have. */
-  publishState: (page: string) => 'new' | 'changed' | 'same' | 'removed'
+  publishState: (page: string) => 'new' | 'changed' | 'same' | 'removed' | 'unknown'
   /** Pages ticked to be changed together; empty means just the one on screen. */
   chosenPages: string[]
   onChoosePage: (page: string) => void
