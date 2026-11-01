@@ -297,6 +297,79 @@ it('App notices a same-size picture replaced while a build is writing', async ()
   expect(currentDraft().matchesLive).toBe(false)
 })
 
+it('App will not send a picture replaced while a build was writing under the check made before it', async () => {
+  await openSite(false)
+  mocks.flush.mockImplementation(persistOpenDocument)
+  await publishOnce()
+  await waitFor(() => currentDraft().matchesLive)
+  const requests = vi.mocked(bridge.fetchJson).mock.calls.length
+  const imagePath = join(site, 'assets/mark.svg')
+  const reset = vi.mocked(bridge.resetBuildFolder).getMockImplementation()!
+  vi.mocked(bridge.resetBuildFolder).mockImplementationOnce(async path => {
+    await writeFile(imagePath, (await readFile(imagePath, 'utf8')).replace('#583553', '#c4afcb'))
+    mocks.measure.mockResolvedValue({ ok: true, fontsLoaded: true, where: 'frame', value: { height: 600, overflowX: true, fontsStatus: 'loaded' } })
+    await mocks.externalChange({ path: site, dirty: false })
+    return reset(path)
+  })
+  await act(async () => mocks.publish.onBuild())
+  await waitFor(() => mocks.publish.state.phase === 'built')
+  await act(async () => mocks.publish.onSend())
+  await waitFor(() => mocks.publish.state.phase === 'error' || vi.mocked(bridge.fetchJson).mock.calls.length > requests)
+  expect(mocks.publish.state.message).toContain('scrolls sideways')
+  expect(vi.mocked(bridge.fetchJson).mock.calls.length).toBe(requests)
+})
+
+it.each(['another site', 'the same site'])('App keeps the publication record when an upload finishes while %s is opening', async opening => {
+  await openSite(false)
+  mocks.flush.mockImplementation(persistOpenDocument)
+  const other = join(workspace, 'Other.site')
+  await cp(site, other, { recursive: true })
+  const otherManifest = JSON.parse(await readFile(join(other, 'site.json'), 'utf8'))
+  otherManifest.title = 'Other site'
+  await writeFile(join(other, 'site.json'), JSON.stringify(otherManifest))
+  const target = opening === 'another site' ? other : site
+  let releaseUpload!: () => void, releaseOpen!: () => void
+  const uploadGate = new Promise<void>(resolve => { releaseUpload = resolve })
+  const openGate = new Promise<void>(resolve => { releaseOpen = resolve })
+  const upload = vi.mocked(bridge.fetchRaw).getMockImplementation()!
+  vi.mocked(bridge.fetchRaw).mockImplementationOnce(async request => { await uploadGate; return upload(request) })
+  const read = mocks.read.getMockImplementation()!
+  let opened = false
+  mocks.read.mockImplementation(async (path: string) => {
+    if (path === join(target, 'site.json')) { opened = true; await openGate }
+    return read(path)
+  })
+  await act(async () => mocks.publish.onSend())
+  await waitFor(() => vi.mocked(bridge.fetchRaw).mock.calls.length > 0)
+  // Not awaited: the opening stays paused until the upload has finished.
+  await act(async () => {
+    if (target === other) void mocks.switcher.onOpenDocument(other)
+    else void mocks.externalChange({ path: site, dirty: false })
+  })
+  await waitFor(() => opened)
+  releaseUpload()
+  await waitFor(() => finalizations === 1)
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+  releaseOpen()
+  // The one-time claim link is there once the dialog is back.
+  await waitFor(() => mocks.publish?.state.phase === 'live')
+  expect(mocks.publish.state.live.claimToken).toBe('fixture-once')
+  const record ={ slug: 'fixture', claimToken: 'fixture-once', styles: expect.any(String), assets: expect.any(Object), pages: expect.any(Object) }
+  if (target === other) {
+    await waitFor(() => mocks.board.document.title === 'Other site')
+    await waitFor(() => mocks.publish.state.message.startsWith('Live at'))
+    for (let attempt = 0; attempt < 100 && !JSON.parse(await read(join(site, 'site.json'))).published; attempt++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+    expect(JSON.parse(await read(join(site, 'site.json')))).toMatchObject({ published: record })
+    expect(mocks.board.document.manifest.published).toBeUndefined()
+    expect(JSON.parse(await read(join(other, 'site.json')))).toEqual(otherManifest)
+  } else {
+    await waitFor(() => mocks.board.document.manifest.published !== undefined)
+    expect(mocks.board.document.manifest.published).toMatchObject(record)
+    await persistOpenDocument()
+    expect(JSON.parse(await read(join(site, 'site.json')))).toMatchObject({ published: record })
+  }
+})
+
 it('App will not send a same-size picture replaced after the check under that stale check', async () => {
   await openSite(false)
   mocks.flush.mockImplementation(persistOpenDocument)

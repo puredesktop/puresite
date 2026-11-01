@@ -22,8 +22,13 @@ Asset bytes sit outside the snapshot and outside a page's render hash, so a
 replacement at the same path needs its own guard. `prepareCheckedSite` reads
 the files again after the final check and refuses if they differ, and App
 measures again from fresh previews when a replacement arrives while text edits
-are unsaved. A replacement landing during a build's writing stage refreshes the
-comparison, but its measurements are not redone until the next change.
+are unsaved or during a build. A build cannot tell its own writes from a
+replacement, so any change it hears costs one reload of the previews after it.
+
+A publication that finishes while a site is opening records its baseline, and
+shows its claim link, when the opening ends: the edit door is shut until then,
+that opening may already have read the old manifest, and only "Opening site" is
+on screen.
 
 `App.output.test.tsx` exercises that real handler with a delayed fake host,
 changes HTML, CSS and equal-length real SVG bytes during upload, persists the

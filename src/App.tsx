@@ -382,6 +382,7 @@ export function App(): React.ReactElement {
   const draftRunRef = useRef(0)
   const openSitePathRef = useRef<((path: string) => Promise<void>) | null>(null)
   const refreshAssetEvidenceRef = useRef<((path: string) => void) | null>(null)
+  const assetChangeDuringBuildRef = useRef<string | null>(null)
 
   const lifecycle = useDocumentLifecycle({
     appSlug: SITE_APP_SLUG,
@@ -390,8 +391,11 @@ export function App(): React.ReactElement {
     suggestedTitle: document.title,
     debounceMs: AUTOSAVE_DELAY_MS,
     onExternalChange: ({ path, dirty }: { path: string; dirty: boolean }) => {
-      // runBuild refreshes the comparison once, when its own writes are done.
-      if (buildingRef.current) return
+      // runBuild answers this once, when its own writes are done.
+      if (buildingRef.current) {
+        assetChangeDuringBuildRef.current = path
+        return
+      }
       // Asset bytes can change without a filename/size change, even while text
       // edits are dirty. Refresh comparison without replacing those edits.
       setPublicationAssetRevision(revision => revision + 1)
@@ -1653,6 +1657,11 @@ export function App(): React.ReactElement {
     } finally {
       buildingRef.current = false
       setPublicationAssetRevision(revision => revision + 1)
+      // Any of those changes may be a replaced picture, which the check made
+      // before the build never saw. The next check waits for this.
+      const changed = assetChangeDuringBuildRef.current
+      assetChangeDuringBuildRef.current = null
+      if (changed) refreshAssetEvidenceRef.current?.(changed)
     }
   }, [outputInput])
 
@@ -2101,6 +2110,9 @@ export function App(): React.ReactElement {
         at: new Date().toISOString(),
         ...comparison,
       }
+      // The door is shut while a site opens, and only the finished opening says
+      // where this record belongs. Nothing but "Opening site" is on screen until then.
+      while (openingRef.current) await new Promise(resolve => setTimeout(resolve, 50))
       // Keep the live record with the package that was actually sent, even
       // when the person opened another site while uploads were in flight.
       let recordError: string | undefined
@@ -2110,9 +2122,10 @@ export function App(): React.ReactElement {
           await writeTextFile(`${root}/${SITE_MANIFEST_FILE}`, serializeSiteManifest({ ...saved, published }))
         }
         if (boundPathRef.current === root) {
-          publishedRef.current = published
           // Publishing metadata is outside history and follows the existing lifecycle.
-          applyDocument(latest => ({ ...latest, manifest: { ...latest.manifest, published } }))
+          const landed = applyDocument(latest => ({ ...latest, manifest: { ...latest.manifest, published } }))
+          if (!landed.ok) throw new Error(landed.message)
+          publishedRef.current = published
         }
       } catch (error) {
         recordError = error instanceof Error ? error.message : String(error)
