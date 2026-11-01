@@ -1,8 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright-core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { analyseLayout, collectLayout, limitsFor, type LayoutRead } from './responsiveCheck'
@@ -18,17 +15,6 @@ vi.mock('@purescience/platform-ui/bridge/client', () => ({ bridge: { call: vi.fn
 
 const PHONE = { width: 390, height: 844 }
 const DESKTOP = { width: 1280, height: 800 }
-
-function chromiumPath(): string | undefined {
-  if (process.env.PURESITE_CHROMIUM) return process.env.PURESITE_CHROMIUM
-  if (existsSync(chromium.executablePath())) return undefined
-  // A shared setup's Playwright can be newer than the browser in its cache.
-  const cache = join(homedir(), 'Library/Caches/ms-playwright')
-  const shell = existsSync(cache) ? readdirSync(cache).filter(name => name.startsWith('chromium_headless_shell-')).sort().at(-1) : undefined
-  if (shell) return join(cache, shell, 'chrome-headless-shell-mac-arm64/chrome-headless-shell')
-  const chrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-  return existsSync(chrome) ? chrome : undefined
-}
 
 const LINKS: SiteHeaderLink[] = [
   { label: 'About', href: '/about/' },
@@ -62,15 +48,11 @@ const SITE: Record<string, string> = {
   '/deep/down/': pageHtml(siteHeader(), 'Deep', '../../styles/site.css'),
 }
 
-/**
- * A browser per page. A sandboxed runner refuses Chromium's helper-process
- * setup; in one process it needs none, but then it cannot outlive a closed
- * context. With no browser at all this still fails, never skips.
- */
-const launch = (): Promise<Browser> => {
-  const executablePath = chromiumPath()
-  return chromium.launch({ executablePath }).catch(() => chromium.launch({ executablePath, args: ['--single-process', '--no-sandbox', '--no-zygote'] }))
-}
+// Use only the browser revision supplied for this playwright-core installation.
+// Cache the single startup attempt, including rejection: a denied startup must
+// fail the checks without trying another binary or changing sandbox/process mode.
+let browserPromise: Promise<Browser> | undefined
+const launch = (): Promise<Browser> => (browserPromise ??= chromium.launch({ headless: true, chromiumSandbox: true }))
 
 let server: Server
 let origin: string
@@ -88,16 +70,17 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await browserPromise?.then(browser => browser.close(), () => {})
   await new Promise(resolve => server ? server.close(resolve) : resolve(null))
 })
 
 async function withPage<T>(options: { viewport: { width: number; height: number }; javaScript?: boolean }, use: (page: Page) => Promise<T>): Promise<T> {
   const browser = await launch()
+  const context = await browser.newContext({ viewport: options.viewport, javaScriptEnabled: options.javaScript ?? false })
   try {
-    const context = await browser.newContext({ viewport: options.viewport, javaScriptEnabled: options.javaScript ?? false })
     return await use(await context.newPage())
   } finally {
-    await browser.close()
+    await context.close()
   }
 }
 

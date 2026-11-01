@@ -65,7 +65,11 @@ npm run build
 npm run puredesktop:check
 ```
 
-`test:browser` renders generated sites in headless Chromium through `playwright-core` (no desktop or window). It uses Playwright's browser when installed (`npx playwright-core install chromium-headless-shell`), else the newest one in Playwright's cache, else Google Chrome; `PURESITE_CHROMIUM` names one exactly. With no browser it fails rather than skips.
+`test:browser` renders disposable, loopback-only site fixtures in headless Chromium through `playwright-core`. Use the matching shared suite dependencies; from this app, install the exact browser revision with `node node_modules/playwright-core/cli.js install chromium-headless-shell`, then run `npm run test:browser`. If the configured shared setup uses `PLAYWRIGHT_BROWSERS_PATH`, set that same path for both installation and testing. The installed library's `browsers.json` identifies the required revision and browser version; record these with the command, setup path, source hashes and exit status in the check receipt.
+
+The launcher uses Playwright's matching headless shell with `headless: true, chromiumSandbox: true`, and no custom process arguments. It makes one startup attempt per suite and retains failures. It does not substitute cached or system binaries, use `PURESITE_CHROMIUM`, or retry with a different sandbox mode. A missing browser, permission denial or startup failure blocks validation; use an already-permitted runner with the matching setup and retain the failure, rather than weakening protections. Never count unexecuted tests as passes.
+
+This app relies on the suite workspace lockfile, not an app lockfile. The owning ps-suite repository's `package-lock.json` must record `apps/puresite`'s `playwright-core` dependency and its resolved `node_modules/playwright-core` version. Refreshing that shared dependency contract belongs in the suite's dependency/submodule update, outside this app repair.
 
 Check the scripts and the [app guide](app-guide.md) for any test prerequisites. Run the relevant tests for your change and build before manifest validation. A successful browser preview or build does not establish that desktop features work: test opening, saving, closing and reopening, and the affected file, account, or drawer-agent workflow inside the desktop. For a new generated project, use that project's own scripts.
 

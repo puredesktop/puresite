@@ -276,8 +276,18 @@ export async function checkResponsiveHandler(context: SiteAgentToolContext, args
   const asked = Array.isArray(args.widths) ? args.widths.map(Number).filter(w => Number.isInteger(w) && w >= 320 && w <= 1920) : []
   const widths = asked.length ? asked.slice(0, 4) : [390, 768]
   const measured = await context.checkResponsive(page, widths)
-  const results = measured.map(({ width, read, why }) => {
-    if (!read) return { width, measured: false, why: why ?? 'the page could not be measured (is PureSite visible?)' }
+  const complete = [
+    ...measured,
+    ...widths.filter(width => !measured.some(row => row.width === width)).map(width => ({ width, read: null, why: 'no measurement was returned' })),
+  ]
+  const results = complete.map(({ width, read, why }) => {
+    if (!read || read.width !== width) return {
+      page,
+      width,
+      measured: false,
+      why: `could not measure ${page} at ${width}px: ${why ?? (read ? 'the reading was for a different width' : 'the page could not be measured')}`,
+      fix: 'Bring PureSite on screen, wait for the page and fonts to load, then run checkResponsive again at this width. This is not a pass.',
+    }
     const findings = analyseLayout(read, limitsFor(read.width), page)
     const h1 = read.boxes.find(box => box.kind === 'h1')
     return {
