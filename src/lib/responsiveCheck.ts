@@ -57,6 +57,8 @@ export type NavigationRead =
       menus: string[]
       /** A menu that does hold the links, with no name for a screen reader to say. */
       unnamedMenu?: boolean
+      /** A menu that does hold the links, opened only by pointer: the keyboard cannot reach its control. */
+      pointerOnlyMenu?: boolean
     }
   | { status: 'incomplete'; why: string }
 
@@ -136,7 +138,7 @@ export function analyseLayout(read: LayoutRead, limits: LayoutLimits = limitsFor
     const clipped = navigation.missing.every(link => link.why === 'clipped')
     push({
       code: 'nav-links-hidden',
-      message: `on ${page} at ${width}px, the header link${many ? 's' : ''} ${names} ${clipped ? `run${many ? '' : 's'} off the screen or out of ${many ? 'their' : 'its'} box` : `${many ? 'are' : 'is'} hidden`} with no working replacement, so a reader there cannot reach ${many ? 'those pages' : 'that page'}${navigation.unnamedMenu ? '. A menu holds them but has no name a screen reader can say: give its control words or an aria-label' : ''}`,
+      message: `on ${page} at ${width}px, the header link${many ? 's' : ''} ${names} ${clipped ? `run${many ? '' : 's'} off the screen or out of ${many ? 'their' : 'its'} box` : `${many ? 'are' : 'is'} hidden`} with no working replacement, so a reader there cannot reach ${many ? 'those pages' : 'that page'}${navigation.unnamedMenu ? '. A menu holds them but has no name a screen reader can say: give its control words or an aria-label' : ''}${navigation.pointerOnlyMenu ? '. A menu holds them but the keyboard cannot reach its control: keep the control focusable (no display: none, visibility: hidden or tabindex="-1"), or use a <details>' : ''}`,
       fix: 'keep the destinations: add <details class="site-menu"><summary>Menu</summary><nav>the same links</nav></details> to the header and mark the row <nav class="site-nav"> (the foundation shows one or the other), or let the links wrap (flex-wrap: wrap; no nowrap or fixed width). A stylesheet that still has the old foundation block hides them: save it again with writeStyles to refresh it',
     })
   }
@@ -419,25 +421,48 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
     look()
     const menus: string[] = []
     let unnamedMenu = false
+    let pointerOnlyMenu = false
+    /** Can Tab land here? Asks the browser, so display: none, inert and a plain span all answer for themselves. */
+    const takesKeyboard = (element: Element) => {
+      const tabindex = element.getAttribute('tabindex')
+      if (tabindex !== null && Number(tabindex) < 0) return false
+      const target = element as HTMLElement
+      target.focus({ preventScroll: true })
+      const focused = doc.activeElement === target
+      target.blur()
+      return focused
+    }
     // :disabled takes in a disabled fieldset's controls too.
     const disabled = (control: Element) => control.matches(':disabled, [aria-disabled="true"]')
-    /** Open a menu in this measuring copy by pressing its control, as a reader would, keep what it reveals if it has a name, and shut it again. */
-    const attempt = (control: Element, open: () => void, close?: () => void) => {
-      if (reach(control) !== 'ok' || disabled(control)) return
+    /**
+     * Open a menu in this measuring copy by pressing its control, as a reader
+     * would, keep what it reveals if everyone can use it, and shut it again.
+     * `keys` is what the keyboard must reach, when that is not the control: a
+     * label is pressed, but its checkbox takes the focus; null when pressing it
+     * is known not to work from the keyboard. True when it revealed links it
+     * cannot be credited with.
+     */
+    const attempt = (control: Element, open: () => void, close?: () => void, keys: Element | null = control): boolean => {
+      if (reach(control) !== 'ok' || disabled(control)) return false
       const before = new Set(reached)
       open()
       look()
+      let refused = false
       if (reached.size > before.size) {
         const named = nameOf(control)
-        if (named) menus.push(named)
+        const keyboard = keys !== null && takesKeyboard(keys)
+        if (named && keyboard) menus.push(named)
         else {
-          // No name, no replacement: put back what only it revealed.
+          // Not a replacement for everyone: put back what only it revealed.
           reached.clear()
           before.forEach(key => reached.add(key))
-          unnamedMenu = true
+          if (!named) unnamedMenu = true
+          if (!keyboard) pointerOnlyMenu = true
+          refused = true
         }
       }
       close?.()
+      return refused
     }
 
     // Native disclosures, outermost first and left open until the end, so a nested one can be reached.
@@ -446,8 +471,7 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
       const summary = details.querySelector(':scope > summary')
       if (!summary || !unreached().length) continue
       opened.push(details)
-      attempt(summary, () => (summary as HTMLElement).click())
-      if (!nameOf(summary)) details.open = false
+      if (attempt(summary, () => (summary as HTMLElement).click())) details.open = false
     }
     // The checkbox menu: a pressable label, or the box itself.
     for (const input of Array.from(body.querySelectorAll<HTMLInputElement>('input[type="checkbox"], input[type="radio"]'))) {
@@ -455,7 +479,7 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
       if (input.closest('form') || disabled(input)) continue
       const control = Array.from(input.labels ?? []).find(label => reach(label) === 'ok') ?? input
       const was = input.checked
-      attempt(control, () => control.click(), () => { input.checked = was })
+      attempt(control, () => control.click(), () => { input.checked = was }, input)
     }
     // The native popover.
     for (const control of Array.from(body.querySelectorAll<HTMLElement>('[popovertarget]'))) {
@@ -474,16 +498,23 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
     const scripted = Array.from(new Set([...roots.flatMap(root => Array.from(root.querySelectorAll('button, [role="button"]'))), ...Array.from(body.querySelectorAll('[aria-controls], [aria-expanded]'))])).filter(
       control => reach(control) === 'ok' && !disabled(control) && !control.closest('form'),
     ) as HTMLElement[]
+    // Enter works on a real button by itself. Anything else with a role and a tabindex does only if a script listens for the key, so try the key first.
+    const pressEnter = (control: HTMLElement) => {
+      for (const type of ['keydown', 'keyup']) control.dispatchEvent(new (win as Window & typeof globalThis).KeyboardEvent(type, { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
+    }
     for (const control of scripted) {
       if (!unreached().length) break
-      attempt(control, () => control.click(), () => control.click())
+      const native = control.matches('a[href], button, input, select, summary')
+      if (!native) attempt(control, () => pressEnter(control), () => pressEnter(control))
+      if (unreached().length) attempt(control, () => control.click(), () => control.click(), native ? control : null)
     }
     opened.reverse().forEach(details => { details.open = false })
 
     const left = unreached()
     // A script may be the menu, and may not have run here: that is no answer either way.
-    if (left.length && scripted.length && (doc.scripts.length > 0 || body.querySelector('[onclick]')))
-      return { status: 'incomplete', why: `its menu ("${nameOf(scripted[0]).slice(0, 30)}") relies on a script that did not reveal the links here, and ${left.length} header link${left.length === 1 ? ' is' : 's are'} otherwise out of reach` }
+    const unproved = scripted.filter(takesKeyboard)
+    if (left.length && !pointerOnlyMenu && unproved.length && (doc.scripts.length > 0 || body.querySelector('[onclick]')))
+      return { status: 'incomplete', why: `its menu ("${nameOf(unproved[0]).slice(0, 30)}") relies on a script that did not reveal the links here, and ${left.length} header link${left.length === 1 ? ' is' : 's are'} otherwise out of reach` }
     return {
       status: 'checked',
       links: destinations.size,
@@ -493,6 +524,7 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
       }),
       menus,
       ...(left.length && unnamedMenu ? { unnamedMenu } : {}),
+      ...(left.length && pointerOnlyMenu ? { pointerOnlyMenu } : {}),
     }
   }
 

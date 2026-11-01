@@ -90,7 +90,8 @@ the page is in scale at 390, 768 and 1280:
   shrinks and never wraps, the wordmark's tag stays one line:
 ${HEADER_EXAMPLE}
   Link pages from the root (/about/), so the header is the same at every depth.
-  A site with its own header may use any menu that opens without a script, or
+  A site with its own header may use any menu that opens without a script, by
+  pointer and by keyboard, or
   let the links wrap; never hide header links with nothing in their place.
 - Fonts: name an open face the app hosts — Inter, Montserrat, Manrope, DM Sans,
   Plus Jakarta Sans, Space Grotesk, Archivo, Newsreader, JetBrains Mono, IBM

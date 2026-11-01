@@ -68,6 +68,12 @@ describe('the navigation check', () => {
     expect(analyseLayout(read({ status: 'checked', links: 1, missing: [{ label: 'About', href: '/about/', why: 'hidden' }], menus: [], unnamedMenu: true }))[0].message).toMatch(/no name a screen reader/)
   })
 
+  it('says when a menu holds the links but the keyboard cannot reach it', () => {
+    const [finding] = analyseLayout(read({ status: 'checked', links: 1, missing: [{ label: 'About', href: '/about/', why: 'hidden' }], menus: [], pointerOnlyMenu: true }))
+    expect(finding.code).toBe('nav-links-hidden')
+    expect(finding.message).toMatch(/the keyboard cannot reach its control/)
+  })
+
   it('never takes a check that did not finish for a pass', () => {
     expect(analyseLayout(read()).map(f => f.code)).toEqual(['nav-check-incomplete'])
     const [finding] = analyseLayout(read({ status: 'incomplete', why: 'the page had no layout when it was measured' }), undefined, 'index.html')

@@ -280,7 +280,7 @@ tokens and the page is in scale on a phone by default:
   foundation shows the Menu instead of the row; the button shrinks and never
   wraps, the tag stays on one line. Link pages from the root (`/about/`). A plain
   `<nav>` in the header wraps instead, and a site's own menu is fine so long as it
-  opens: never hide header links with nothing in their place.
+  opens by pointer and by keyboard: never hide header links with nothing in their place.
 - Fonts: name an open face PureSite hosts (Inter, Montserrat, Manrope, DM Sans,
   Plus Jakarta Sans, Space Grotesk, Archivo, Newsreader, JetBrains Mono, IBM
   Plex Mono) and its woff2 is written into `assets/fonts/` and declared in the
@@ -295,7 +295,9 @@ tokens and the page is in scale on a phone by default:
    header links a reader cannot reach. A link counts as reachable when it is
    on screen, in a menu that opens (a closed `<details>`, a checkbox or popover
    menu, a `:target` panel, a scripted button) or repeated elsewhere on the
-   page. Menus are opened only in the measuring copy, never in the site's files.
+   page. A menu counts only if its control has a name, is not disabled and takes
+   keyboard focus: a checkbox hidden with `display: none` behind its label does
+   not. Menus are opened only in the measuring copy, never in the site's files.
    `nav-links-hidden` names the page and the links; `nav-check-incomplete` means
    it could not tell (a scripted menu in a frame that does not run scripts, a
    frame with no layout), which is never `clean`.

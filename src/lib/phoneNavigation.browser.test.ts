@@ -377,6 +377,45 @@ describe('checkResponsive on a real render', () => {
       })
     }
 
+    const POINTER_ONLY: [string, Parameters<typeof check>[0]][] = [
+      ['a checkbox hidden with display: none behind its label', { styles: `${CHECKBOX} .t { display: none; }`, html: `<header class="site-header"><input id="t" type="checkbox" class="t"><label for="t">Menu</label><nav class="drawer">${plainLinks}</nav></header>` }],
+      ['a checkbox hidden with visibility: hidden behind its label', { styles: `${CHECKBOX} .t { visibility: hidden; }`, html: `<header class="site-header"><input id="t" type="checkbox" class="t"><label for="t">Menu</label><nav class="drawer">${plainLinks}</nav></header>` }],
+      ['a checkbox taken out of the tab order', { styles: CHECKBOX, html: `<header class="site-header"><input id="t" type="checkbox" class="t" tabindex="-1"><label for="t">Menu</label><nav class="drawer">${plainLinks}</nav></header>` }],
+      ['a details summary taken out of the tab order', { html: `<header class="site-header"><details><summary tabindex="-1">Menu</summary><nav>${plainLinks}</nav></details></header>` }],
+      ['a popover button taken out of the tab order', { html: `<header><button popovertarget="m" tabindex="-1">Menu</button><nav id="m" popover>${plainLinks}</nav></header>` }],
+      ['a focusable role="button" that only listens for clicks', { javaScript: true, styles: HIDDEN, html: `<header class="site-header"><div role="button" tabindex="0" aria-controls="m" onclick="const m = document.getElementById('m'); m.hidden = !m.hidden">Menu</div>${closedNav}</header>` }],
+      ['a scripted span that takes no focus', { javaScript: true, styles: HIDDEN, html: `<header class="site-header"><span role="button" aria-controls="m" onclick="const m = document.getElementById('m'); m.hidden = !m.hidden">Menu</span>${closedNav}</header>` }],
+    ]
+    for (const [name, fixture] of POINTER_ONLY) {
+      it(`reports ${name}`, async () => {
+        const { navFindings, read } = await check(fixture)
+        expect(read.navigation).toMatchObject({ status: 'checked', menus: [], pointerOnlyMenu: true })
+        expect(navFindings.map(finding => finding.code)).toEqual(['nav-links-hidden'])
+        expect(navFindings[0].message).toContain('the keyboard cannot reach its control')
+      })
+    }
+
+    it('accepts a role="button" that does listen for the key', async () => {
+      const toggle = "const m = document.getElementById('m'); m.hidden = !m.hidden"
+      const { navFindings, read } = await check({ javaScript: true, styles: HIDDEN, html: `<header class="site-header"><div role="button" tabindex="0" aria-controls="m" onclick="${toggle}" onkeydown="if (event.key === 'Enter') { ${toggle} }">Menu</div>${closedNav}</header>` })
+      expect(navFindings).toEqual([])
+      expect(read.navigation).toMatchObject({ status: 'checked', menus: ['Menu'] })
+    })
+
+    it('accepts a checkbox menu the keyboard can really operate, proved with the keyboard', async () => {
+      const html = `<header class="site-header"><input id="t" type="checkbox" class="t" aria-label="Menu"><label for="t">Menu</label><nav class="drawer">${plainLinks}</nav></header>`
+      expect((await check({ styles: CHECKBOX, html })).navFindings).toEqual([])
+      await withPage({ viewport: PHONE }, async page => {
+        await page.setContent(pageHtml(html, 'A page', 'x.css', withSiteFoundation(AUTHOR + CHECKBOX)))
+        await page.keyboard.press('Tab')
+        expect(await page.evaluate('document.activeElement.id')).toBe('t')
+        const about = page.locator('.drawer a', { hasText: 'About' })
+        expect(await about.isVisible()).toBe(false)
+        await page.keyboard.press('Space')
+        expect(await about.isVisible()).toBe(true)
+      })
+    })
+
     it('still accepts a checkbox menu whose box is pressed through its label, and leaves it as it was', async () => {
       const { navFindings, read, unchanged } = await check({ styles: CHECKBOX, html: `<header class="site-header"><label>Menu<input type="checkbox" class="t"><nav class="drawer">${plainLinks}</nav></label></header>` })
       expect(navFindings).toEqual([])
@@ -487,6 +526,11 @@ describe('the checkResponsive tool', () => {
     const disabledMenu = await run({ document: shut, checkResponsive: (page: string, widths: number[]) => measure(shut, page, widths) })
     expect(disabledMenu.clean).toBe(false)
     expect(disabledMenu.results[0].findings.map((f: { code: string }) => f.code)).toContain('nav-links-hidden')
+
+    const keyless = { ...shut, styles: withSiteFoundation(`${AUTHOR}.drawer { display: none !important; } #t { display: none; } #t:checked ~ .drawer { display: flex !important; }`), pages: { 'about/index.html': shut.pages['about/index.html'].replace(' disabled>', '>') } }
+    const keylessMenu = await run({ document: keyless, checkResponsive: (page: string, widths: number[]) => measure(keyless, page, widths) })
+    expect(keylessMenu.clean).toBe(false)
+    expect(keylessMenu.results[0].findings.map((f: { code: string }) => f.code)).toContain('nav-links-hidden')
 
     // Nothing measured, or one width not measured, is never clean.
     expect((await run({ checkResponsive: async () => [] })).clean).toBe(false)
