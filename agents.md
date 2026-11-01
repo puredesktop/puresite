@@ -273,9 +273,14 @@ tokens and the page is in scale on a phone by default:
   headings `--step-4`/`--step-3`, body `--step-0`, nothing under 14px.
 - Tracking no tighter than -0.035em (`--tracking-display`); tighter values in
   em are capped on save.
-- `<header class="site-header">` with a wordmark, a `<nav>` and one
-  `<a class="button">` compacts on phones by itself: links hide, the button
-  shrinks and never wraps, the tag stays on one line.
+- Every header link stays reachable on a phone, with no JavaScript. In
+  `<header class="site-header">`: a wordmark, `<nav class="site-nav">` with the
+  links, `<details class="site-menu"><summary>Menu</summary><nav>` with the same
+  links and labels, and one `<a class="button">`. At 560px and below the
+  foundation shows the Menu instead of the row; the button shrinks and never
+  wraps, the tag stays on one line. Link pages from the root (`/about/`). A plain
+  `<nav>` in the header wraps instead, and a site's own menu is fine so long as it
+  opens: never hide header links with nothing in their place.
 - Fonts: name an open face PureSite hosts (Inter, Montserrat, Manrope, DM Sans,
   Plus Jakarta Sans, Space Grotesk, Archivo, Newsreader, JetBrains Mono, IBM
   Plex Mono) and its woff2 is written into `assets/fonts/` and declared in the
@@ -286,7 +291,14 @@ tokens and the page is in scale on a phone by default:
 1. `checkResponsive` (390 and 768 by default) measures buttons that wrap or
    overflow, the headline's line count (at most 3), gutters under 16px (24px
    on a tablet), text under 14px, empty vertical bands, section headings that
-   switch alignment, tracking tighter than -0.035em and sideways scrolling.
+   switch alignment, tracking tighter than -0.035em, sideways scrolling, and
+   header links a reader cannot reach. A link counts as reachable when it is
+   on screen, in a menu that opens (a closed `<details>`, a checkbox or popover
+   menu, a `:target` panel, a scripted button) or repeated elsewhere on the
+   page. Menus are opened only in the measuring copy, never in the site's files.
+   `nav-links-hidden` names the page and the links; `nav-check-incomplete` means
+   it could not tell (a scripted menu in a frame that does not run scripts, a
+   frame with no layout), which is never `clean`.
 2. Fix every finding and run it again until it reports `clean`.
 3. `exportPage` png at 390, and look at it with `view_image`. The numbers do
    not see everything; a page is not done until you have looked at it on a

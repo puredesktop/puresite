@@ -91,6 +91,8 @@ function chromeRanges(html: string): Array<[number, number]> {
 export function pageLinks(html: string, fromPage: string): SiteLink[] {
   const chrome = chromeRanges(html)
   const links: SiteLink[] = []
+  // A header holds its links twice, as a row and in the phone menu: one link to the map.
+  const inChrome = new Set<string>()
   for (const match of html.matchAll(ANCHOR)) {
     const href = attribute(match[1]!, 'href')
     if (!href || /^[a-z]+:/i.test(href) || href.startsWith('//') || href.startsWith('#')) continue
@@ -98,13 +100,14 @@ export function pageLinks(html: string, fromPage: string): SiteLink[] {
     const target = resolvePagePath(fromPage, href)
     if (!target) continue
     const at = match.index ?? 0
-    links.push({
-      fromPage,
-      href,
-      target,
-      text: linkText(match[2] ?? ''),
-      inNav: chrome.some(([start, end]) => at >= start && at < end),
-    })
+    const text = linkText(match[2] ?? '')
+    const inNav = chrome.some(([start, end]) => at >= start && at < end)
+    if (inNav) {
+      const key = `${target}\n${text}`
+      if (inChrome.has(key)) continue
+      inChrome.add(key)
+    }
+    links.push({ fromPage, href, target, text, inNav })
   }
   return links
 }

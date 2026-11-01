@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { analyseLayout, collectLayout, copyNotes, type TextBox } from './responsiveCheck'
+import { analyseLayout, collectLayout, copyNotes, type NavigationRead, type TextBox } from './responsiveCheck'
 
+const navigated: NavigationRead = { status: 'checked', links: 0, missing: [], menus: [] }
 const box = (over: Partial<TextBox>): TextBox => ({
   label: 'p', text: 'Words', left: 24, right: 366, top: 0, bottom: 20, fontSize: 16, lines: 1, align: 'left', letterSpacingEm: 0, kind: 'text', ...over,
 })
@@ -20,7 +21,7 @@ describe('the mobile check', () => {
       ],
     })
     expect([...new Set(findings.map(f => f.code))].sort()).toEqual(
-      ['button-wraps', 'empty-band', 'headline-lines', 'mixed-alignment', 'narrow-gutter', 'small-text', 'tight-tracking'].sort(),
+      ['button-wraps', 'empty-band', 'headline-lines', 'mixed-alignment', 'narrow-gutter', 'small-text', 'tight-tracking', 'nav-check-incomplete'].sort(),
     )
     expect(findings.find(f => f.code === 'headline-lines')!.message).toMatch(/4 lines at 58px/)
     expect(findings.find(f => f.code === 'narrow-gutter')!.fix).toMatch(/var\(--gutter\)/)
@@ -31,6 +32,7 @@ describe('the mobile check', () => {
       analyseLayout({
         width: 390,
         scrollWidth: 390,
+        navigation: navigated,
         boxes: [
           box({ kind: 'button', text: 'Book a demo', lines: 1, left: 260, right: 366 }),
           box({ kind: 'h1', text: 'Workshops, then a pilot, then rollout.', fontSize: 36, lines: 3, top: 80, bottom: 200 }),
@@ -47,8 +49,39 @@ describe('the mobile check', () => {
   })
 })
 
+describe('the navigation check', () => {
+  const read = (navigation?: NavigationRead) => ({ width: 390, scrollWidth: 390, boxes: [], navigation })
+
+  it('names the page and the links a reader cannot reach', () => {
+    const [finding] = analyseLayout(
+      read({ status: 'checked', links: 2, missing: [{ label: 'About', href: '/about/', why: 'hidden' }, { label: 'Work', href: '/work/', why: 'hidden' }], menus: [] }),
+      undefined,
+      'about/index.html',
+    )
+    expect(finding.code).toBe('nav-links-hidden')
+    expect(finding.message).toBe('on about/index.html at 390px, the header links "About", "Work" are hidden with no working replacement, so a reader there cannot reach those pages')
+    expect(finding.fix).toMatch(/<details class="site-menu">/)
+  })
+
+  it('says when a link is cut off rather than hidden, and when a menu has no name', () => {
+    expect(analyseLayout(read({ status: 'checked', links: 1, missing: [{ label: 'About', href: '/about/', why: 'clipped' }], menus: [] }))[0].message).toMatch(/"About" runs off the screen/)
+    expect(analyseLayout(read({ status: 'checked', links: 1, missing: [{ label: 'About', href: '/about/', why: 'hidden' }], menus: [], unnamedMenu: true }))[0].message).toMatch(/no name a screen reader/)
+  })
+
+  it('never takes a check that did not finish for a pass', () => {
+    expect(analyseLayout(read()).map(f => f.code)).toEqual(['nav-check-incomplete'])
+    const [finding] = analyseLayout(read({ status: 'incomplete', why: 'the page had no layout when it was measured' }), undefined, 'index.html')
+    expect(finding.code).toBe('nav-check-incomplete')
+    expect(finding.message).toMatch(/index\.html can be navigated at 390px: the page had no layout/)
+  })
+
+  it('passes navigation a reader can reach', () => {
+    expect(analyseLayout(read({ status: 'checked', links: 3, missing: [], menus: ['Menu'] }))).toEqual([])
+  })
+})
+
 describe('the copy notes', () => {
-  const read = (boxes: TextBox[]) => ({ width: 390, scrollWidth: 390, boxes })
+  const read = (boxes: TextBox[]) => ({ width: 390, scrollWidth: 390, boxes, navigation: navigated })
   const card = (text: string, over: Partial<TextBox> = {}) => box({ kind: 'card', text, top: 400, bottom: 520, ...over })
 
   it('names cards that hold only a word or two, apart from the layout findings', () => {

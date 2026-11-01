@@ -13,8 +13,9 @@
  *   scale, all `clamp()`, that step down on small screens;
  * - safe defaults at zero specificity (`:where()`): images that shrink,
  *   headings that break rather than overflow, buttons that never wrap;
- * - a compact header on phones when the site uses the conventional
- *   `.site-header` markup.
+ * - a header whose links stay reachable: `siteHeaderHtml` swaps them for a
+ *   native disclosure on phones, and a plain `<nav>` in `.site-header` wraps
+ *   rather than hides. No JavaScript in either.
  *
  * Author rules follow it and win. What the foundation cannot guarantee, the
  * responsive check measures (responsiveCheck.ts).
@@ -61,12 +62,61 @@ const SAFE_DEFAULTS = `:where(*, *::before, *::after) { box-sizing: border-box; 
 :where(h1, h2, h3, h4) { overflow-wrap: break-word; text-wrap: balance; }
 :where(p, li, figcaption) { text-wrap: pretty; }
 :where(button, .button, .btn, a[role="button"]) { white-space: nowrap; }
+:where(.site-header) { flex-wrap: wrap; }
+:where(.site-header nav) { flex-wrap: wrap; min-width: 0; }
+:where(.site-header nav a) { overflow-wrap: anywhere; }
+:where(.site-header a, details.site-menu > summary):focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+:where(details.site-menu > summary) { cursor: pointer; width: fit-content; padding-block: 10px; }
+:where(details.site-menu > nav) { display: flex; flex-direction: column; gap: var(--space-2xs); padding-block: var(--space-2xs); }
+:where(details.site-menu > nav a) { display: block; padding-block: 10px; }
+@media not all and (max-width: 560px) {
+  .site-header:has(.site-nav) details.site-menu { display: none !important; }
+}
 @media (max-width: 560px) {
+  .site-header:has(details.site-menu) .site-nav { display: none !important; }
   :where(.site-header) { gap: var(--space-s); }
-  :where(.site-header nav > a:not(.button):not(.btn)) { display: none; }
+  :where(.site-header:has(details.site-menu)) { display: flex; align-items: center; }
+  :where(details.site-menu) { margin-inline-start: auto; }
+  :where(details.site-menu[open]) { flex-basis: 100%; margin-inline-start: 0; }
   :where(.site-header .button, .site-header .btn) { padding: 10px 14px; font-size: var(--step--1); }
   :where(.brand small, .site-header small) { white-space: nowrap; font-size: 9px; letter-spacing: 0.12em; }
 }`
+
+export interface SiteHeaderLink {
+  label: string
+  /** Root-relative (`/about/`), so the same header works from every page's depth. */
+  href: string
+}
+
+const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const anchor = ({ label, href }: SiteHeaderLink, cls = '') => `<a${cls ? ` class="${cls}"` : ''} href="${escapeHtml(href)}">${escapeHtml(label)}</a>`
+
+/**
+ * The header the foundation's navigation rules are written for: the same links
+ * twice, as a row wider than 560px and as a closed native disclosure at or
+ * below it. Two lists, because a closed `<details>` cannot be shown as a row
+ * on every browser without a script; the foundation shows exactly one of them
+ * at any width, so no width is left without navigation. It hides the row only
+ * when the menu is there: a site's own `.site-nav` with no menu keeps its links.
+ */
+export function siteHeaderHtml(header: { brand: SiteHeaderLink; links: SiteHeaderLink[]; action?: SiteHeaderLink }): string {
+  const links = (indent: string) => header.links.map(link => `${indent}${anchor(link)}`).join('\n')
+  return [
+    '<header class="site-header">',
+    `  ${anchor(header.brand, 'brand')}`,
+    '  <nav class="site-nav" aria-label="Main">',
+    links('    '),
+    '  </nav>',
+    '  <details class="site-menu">',
+    '    <summary>Menu</summary>',
+    '    <nav aria-label="Main menu">',
+    links('      '),
+    '    </nav>',
+    '  </details>',
+    ...(header.action ? [`  ${anchor(header.action, 'button')}`] : []),
+    '</header>',
+  ].join('\n')
+}
 
 const FAMILY_DECL = /font(?:-family)?\s*:\s*([^;}]+)/gi
 const FONT_TOKEN_DECL = /--[\w-]*font[\w-]*\s*:\s*([^;}]+)/gi
