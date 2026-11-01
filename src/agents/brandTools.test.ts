@@ -25,6 +25,7 @@ vi.mock('../bridge/platformBridge', () => ({
 
 import {
   applyBrand,
+  checkResponsiveHandler,
   listBrandsHandler,
   makeImageHandler,
   proposeBrandToOrganisationHandler,
@@ -236,5 +237,60 @@ describe('makeImage', () => {
     expect(requests[0].quality).toBe('high')
     expect(requests[0].prompt).toMatch(/quiet areas.*No text/)
     expect(requests[0].sourceImages).toHaveLength(1)
+  })
+})
+
+
+describe('checkResponsive measurement coverage', () => {
+  const page = 'about/index.html'
+  const widths = [390, 768]
+  const cleanRead = (width: number) => ({ width, scrollWidth: width, boxes: [], navigation: { status: 'checked' as const, links: 0, missing: [], menus: [] } })
+  const run = async (rows: Awaited<ReturnType<SiteAgentToolContext['checkResponsive']>>) => {
+    const checkResponsive = vi.fn(async () => rows)
+    const result = await json(checkResponsiveHandler(site({ checkResponsive }).context, { page, widths }))
+    expect(checkResponsive).toHaveBeenCalledWith(page, widths)
+    return result
+  }
+
+  it('identifies a missing requested width even when the returned width is clean', async () => {
+    const result = await run([{ width: 390, read: cleanRead(390) }])
+    expect(result.clean).toBe(false)
+    expect(result.results).toContainEqual(expect.objectContaining({ width: 390, clean: true }))
+    expect(result.results).toContainEqual(expect.objectContaining({ page, width: 768, measured: false, why: expect.stringContaining('768px'), fix: expect.stringContaining('checkResponsive') }))
+  })
+
+  it('identifies every missing width in an empty result', async () => {
+    const result = await run([])
+    expect(result.clean).toBe(false)
+    expect(result.results).toEqual(widths.map(width => expect.objectContaining({ page, width, measured: false })))
+  })
+
+  it('keeps null readings and their explanation incomplete', async () => {
+    const result = await run([{ width: 390, read: cleanRead(390) }, { width: 768, read: null, why: 'hidden frame' }])
+    expect(result.clean).toBe(false)
+    expect(result.results[1]).toMatchObject({ page, width: 768, measured: false, why: expect.stringContaining('hidden frame') })
+  })
+
+  it('does not approve measurements without navigation evidence', async () => {
+    const result = await run(widths.map(width => ({ width, read: { ...cleanRead(width), navigation: undefined } })))
+    expect(result.clean).toBe(false)
+    for (const row of result.results) expect(row.findings).toContainEqual(expect.objectContaining({ page, code: 'nav-check-incomplete' }))
+  })
+
+  it('preserves findings from measured widths while reporting a missing width', async () => {
+    const result = await run([{ width: 390, read: { ...cleanRead(390), scrollWidth: 800 } }])
+    expect(result.clean).toBe(false)
+    expect(result.results[0].findings).toContainEqual(expect.objectContaining({ page, code: 'sideways-scroll' }))
+    expect(result.results[1]).toMatchObject({ page, width: 768, measured: false })
+  })
+
+  it('refuses a reading taken at a different width', async () => {
+    const result = await run([{ width: 390, read: cleanRead(390) }, { width: 768, read: cleanRead(390) }])
+    expect(result.clean).toBe(false)
+    expect(result.results[1]).toMatchObject({ page, width: 768, measured: false, why: expect.stringContaining('different width') })
+  })
+
+  it('accepts a complete clean set, regardless of return order', async () => {
+    expect((await run([...widths].reverse().map(width => ({ width, read: cleanRead(width) })))).clean).toBe(true)
   })
 })

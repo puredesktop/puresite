@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { capTracking, familiesNamed, FOUNDATION_START, siteFontFiles, withSiteFoundation, withoutFoundation } from './siteFoundation'
+import { capTracking, familiesNamed, FOUNDATION_START, siteFontFiles, siteHeaderHtml, withSiteFoundation, withoutFoundation } from './siteFoundation'
 import { createDefaultSiteDocument } from './siteDocument'
 import { checkSite, planBuild } from './buildSite'
 import { previewDocument } from './preview'
@@ -11,6 +11,16 @@ h1{font-size:var(--step-5);letter-spacing:-.06em}
 h2{letter-spacing:-0.02em}`
 
 describe('the stylesheet foundation', () => {
+  it('never hides header links without a replacement', () => {
+    const css = withSiteFoundation(author)
+    expect(css).not.toContain('nav > a:not(.button):not(.btn)')
+    expect(css).toContain('.site-header:has(details.site-menu) .site-nav { display: none !important; }')
+    const header = siteHeaderHtml({ brand: { label: 'Opa & co', href: '/' }, links: [{ label: 'About', href: '/about/' }], action: { label: 'Join', href: '/join/' } })
+    expect(header).toContain('<a class="brand" href="/">Opa &amp; co</a>')
+    expect(header).toContain('<summary>Menu</summary>')
+    expect(header.match(/href="\/about\/">About</g)).toHaveLength(2)
+  })
+
   it('opens every stylesheet with tokens, safe defaults and self-hosted faces for the open faces it names', () => {
     const css = withSiteFoundation(author)
     expect(css.startsWith(FOUNDATION_START)).toBe(true)

@@ -12,6 +12,7 @@ import {
   titleForPromise,
 } from './siteLinks'
 import type { SiteDocument } from './siteDocument'
+import { siteHeaderHtml } from './siteFoundation'
 
 function site(pages: Record<string, string>): SiteDocument {
   const paths = Object.keys(pages)
@@ -76,6 +77,13 @@ describe('pageLinks', () => {
     const links = pageLinks(home, 'index.html')
     expect(links.find(link => link.target === 'judges/index.html')?.inNav).toBe(true)
     expect(links.find(link => link.target === 'nominate/index.html')?.inNav).toBe(false)
+  })
+
+  it('counts a header link once though the row and the phone menu both hold it, and ships neither copy as a dead link', () => {
+    const html = siteHeaderHtml({ brand: { label: 'Home', href: '/' }, links: [{ label: 'Judges', href: '/judges/' }] }) + '<main><a href="/judges/">Meet the judges</a></main>'
+    const links = pageLinks(html, 'index.html').filter(link => link.target === 'judges/index.html')
+    expect(links.map(link => [link.text, link.inNav])).toEqual([['Judges', true], ['Meet the judges', false]])
+    expect(shipPage(html, 'index.html', ['index.html'])).not.toContain('/judges/')
   })
 
   it('resolves a link the way a browser would, from the page it sits on', () => {

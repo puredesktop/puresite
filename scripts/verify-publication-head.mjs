@@ -1,9 +1,10 @@
 /** PureDev's post-push check. Never commits, pushes, merges or publishes a site. */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { browserIdentity, browserSuiteProblem } from './browserEvidence.mjs'
 
 const args = process.argv.slice(2)
 const expected = args[0]
@@ -24,17 +25,31 @@ const receipt = {
   relatedRevision: 'f5f639cb8991f4506c8900bc47e8912acb20f865',
   configuration: 'Repository package scripts; existing supported platform dependencies and styled-components SWC plugin enabled.',
   files: Object.fromEntries(git('ls-files').split('\n').filter(Boolean).map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')])),
+  browser: await browserIdentity(),
   commands: [], complete: false,
 }
 const save = () => writeFileSync(join(evidence, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n')
 save()
-for (const [name, args] of [['tests', ['test']], ['typecheck', ['run', 'typecheck']], ['build', ['run', 'build']]]) {
+const browserResults = join(evidence, 'browser-results.json')
+const browserCommand = ['run', 'test:browser', '--', '--reporter=default', '--reporter=json', `--outputFile.json=${browserResults}`]
+for (const [name, args] of [['tests', ['test']], ['browser', browserCommand], ['typecheck', ['run', 'typecheck']], ['build', ['run', 'build']]]) {
   const result = spawnSync('npm', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
   const log = join(evidence, `${name}.log`)
   writeFileSync(log, (result.stdout ?? '') + (result.stderr ?? '') + (result.error?.message ?? ''))
   receipt.commands.push({ command: `npm ${args.join(' ')}`, exitCode: result.status, signal: result.signal, log })
+  let problem = null
+  if (name === 'browser') {
+    let results = null
+    try {
+      if (existsSync(browserResults)) results = JSON.parse(readFileSync(browserResults, 'utf8'))
+    } catch {
+      // Unreadable results prove nothing, the same as none.
+    }
+    receipt.browserTests = results && { total: results.numTotalTests, passed: results.numPassedTests }
+    problem = browserSuiteProblem(results)
+  }
   save()
-  if (result.status !== 0) throw new Error(`Head verification failed; evidence: ${evidence}`)
+  if (result.status !== 0 || problem) throw new Error(`Head verification failed${problem ? ` (${problem})` : ''}; evidence: ${evidence}`)
 }
 if (git('rev-parse', 'HEAD') !== head || git('status', '--porcelain')) throw new Error(`The checkout changed during verification; evidence: ${evidence}`)
 if (git('ls-remote', '--heads', 'origin', remoteRef).split(/\s/)[0] !== head) throw new Error(`The published branch moved during verification; evidence: ${evidence}`)

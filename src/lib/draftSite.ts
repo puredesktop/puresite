@@ -1,4 +1,14 @@
 import type { MaterialItem } from './material'
+import { siteHeaderHtml } from './siteFoundation'
+
+const HEADER_EXAMPLE = siteHeaderHtml({
+  brand: { label: 'Site name', href: '/' },
+  links: [
+    { label: 'About', href: '/about/' },
+    { label: 'Work', href: '/work/' },
+  ],
+  action: { label: 'Get in touch', href: '/contact/' },
+}).replace(/^/gm, '    ')
 
 /** Four minutes, then it is not coming. */
 const DRAFT_TIMEOUT_MS = 240_000
@@ -74,10 +84,15 @@ the page is in scale at 390, 768 and 1280:
   var(--step-0); nothing under 14px. No fixed px headline sizes.
 - Tracking no tighter than -0.035em (var(--tracking-display) for the hero);
   tighter is capped, because heavy letters touch.
-- A conventional header — <header class="site-header"> with the wordmark, a
-  <nav> of links and one <a class="button"> — compacts on phones by itself:
-  the links hide, the button shrinks and never wraps, the wordmark's tag stays
-  one line. Keep that markup.
+- Every header link stays reachable on a phone, with no JavaScript. Write the
+  header like this, the same links with the same labels in both lists; at
+  560px and below the foundation shows the Menu instead of the row, the button
+  shrinks and never wraps, the wordmark's tag stays one line:
+${HEADER_EXAMPLE}
+  Link pages from the root (/about/), so the header is the same at every depth.
+  A site with its own header may use any menu that opens without a script, by
+  pointer and by keyboard, or
+  let the links wrap; never hide header links with nothing in their place.
 - Fonts: name an open face the app hosts — Inter, Montserrat, Manrope, DM Sans,
   Plus Jakarta Sans, Space Grotesk, Archivo, Newsreader, JetBrains Mono, IBM
   Plex Mono — and it is self-hosted in the package automatically. Never link a

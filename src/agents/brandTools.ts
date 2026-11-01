@@ -13,7 +13,7 @@ import { parseDesignSystem, type DesignSystem } from '@purescience/platform-ui/d
 import { brandsOffered, getBrand, listBrands, proposeBrand, proposeBrandSamples, type BrandDetail } from '../bridge/platformBridge'
 import { brandAssets, brandBlock } from '../lib/brandStyles'
 import { brandArgument, brandLine, sampleImages, siteBrandFrom, type SiteBrand } from '../lib/siteBrand'
-import { analyseLayout, copyNotes } from '../lib/responsiveCheck'
+import { analyseLayout, copyNotes, limitsFor } from '../lib/responsiveCheck'
 import { AgentSiteToolError, type SiteAgentToolContext } from './catalog'
 
 type Args = Record<string, unknown>
@@ -267,7 +267,8 @@ export async function makeImageHandler(context: SiteAgentToolContext, args: Args
 /**
  * The page at a phone's and a tablet's width, measured: buttons that wrap,
  * the headline's line count, gutters, small text, empty bands, mixed
- * alignment, tight tracking, sideways scroll. Clean means no findings.
+ * alignment, tight tracking, sideways scroll, header links out of reach.
+ * Clean means every width was measured, navigation included, with no findings.
  */
 export async function checkResponsiveHandler(context: SiteAgentToolContext, args: Args): Promise<AgentToolHandlerResult> {
   const page = str(args.page) ?? context.selectedPage
@@ -275,19 +276,29 @@ export async function checkResponsiveHandler(context: SiteAgentToolContext, args
   const asked = Array.isArray(args.widths) ? args.widths.map(Number).filter(w => Number.isInteger(w) && w >= 320 && w <= 1920) : []
   const widths = asked.length ? asked.slice(0, 4) : [390, 768]
   const measured = await context.checkResponsive(page, widths)
-  const results = measured.map(({ width, read, why }) => {
-    if (!read) return { width, measured: false, why: why ?? 'the page could not be measured (is PureSite visible?)' }
-    const findings = analyseLayout(read)
+  const complete = [
+    ...measured,
+    ...widths.filter(width => !measured.some(row => row.width === width)).map(width => ({ width, read: null, why: 'no measurement was returned' })),
+  ]
+  const results = complete.map(({ width, read, why }) => {
+    if (!read || read.width !== width) return {
+      page,
+      width,
+      measured: false,
+      why: `could not measure ${page} at ${width}px: ${why ?? (read ? 'the reading was for a different width' : 'the page could not be measured')}`,
+      fix: 'Bring PureSite on screen, wait for the page and fonts to load, then run checkResponsive again at this width. This is not a pass.',
+    }
+    const findings = analyseLayout(read, limitsFor(read.width), page)
     const h1 = read.boxes.find(box => box.kind === 'h1')
     return {
       width,
       measured: true,
       headline: h1 ? { text: h1.text.slice(0, 80), lines: h1.lines, fontSize: Math.round(h1.fontSize) } : null,
       clean: findings.length === 0,
-      findings: findings.map(({ code, message, fix }) => ({ code, message, fix })),
+      findings: findings.map(({ code, message, fix }) => ({ page, code, message, fix })),
     }
   })
-  const clean = results.every(result => 'clean' in result && result.clean)
+  const clean = results.length > 0 && results.every(result => 'clean' in result && result.clean)
   // Copy advice from the first width measured: the cards hold the same words at every width. Never part of clean.
   const firstRead = measured.find(({ read }) => read)?.read
   const notes = firstRead ? copyNotes(firstRead) : []
@@ -301,7 +312,7 @@ export async function checkResponsiveHandler(context: SiteAgentToolContext, args
         : {}),
       next: clean
         ? 'Now exportPage with format png at width 390 and look at it with view_image: the numbers do not see everything.'
-        : 'Fix every finding in styles/site.css (the foundation tokens: --gutter, --space-*, --step-*), then run checkResponsive again until it is clean, then exportPage png at 390 and look at it with view_image.',
+        : 'Fix every finding in styles/site.css (the foundation tokens: --gutter, --space-*, --step-*) or, for navigation, in the page header, then run checkResponsive again until it is clean, then exportPage png at 390 and look at it with view_image.',
     }),
   }
 }
