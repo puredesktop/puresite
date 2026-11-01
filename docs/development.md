@@ -69,6 +69,8 @@ npm run puredesktop:check
 
 The launcher uses Playwright's matching headless shell with `headless: true, chromiumSandbox: true`, and no custom process arguments. It makes one startup attempt per suite and retains failures. It does not substitute cached or system binaries, use `PURESITE_CHROMIUM`, or retry with a different sandbox mode. A missing browser, permission denial or startup failure blocks validation; use an already-permitted runner with the matching setup and retain the failure, rather than weakening protections. Never count unexecuted tests as passes.
 
+`npm run verify:head -- <head> [refs/heads/branch]` is the post-push gate, and it includes this suite: its receipt records the `playwright-core` version, browser revision, browser version, `PLAYWRIGHT_BROWSERS_PATH` and executable, keeps the suite's log and exit status, and is complete only when every browser test ran and passed. A missing browser therefore leaves the receipt incomplete.
+
 This app relies on the suite workspace lockfile, not an app lockfile. The owning ps-suite repository's `package-lock.json` must record `apps/puresite`'s `playwright-core` dependency and its resolved `node_modules/playwright-core` version. Refreshing that shared dependency contract belongs in the suite's dependency/submodule update, outside this app repair.
 
 Check the scripts and the [app guide](app-guide.md) for any test prerequisites. Run the relevant tests for your change and build before manifest validation. A successful browser preview or build does not establish that desktop features work: test opening, saving, closing and reopening, and the affected file, account, or drawer-agent workflow inside the desktop. For a new generated project, use that project's own scripts.
