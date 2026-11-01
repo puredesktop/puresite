@@ -355,6 +355,36 @@ describe('checkResponsive on a real render', () => {
   })
 
   // What the check should say it had to open to reach the links; none when they are in plain sight.
+  describe('a menu a reader cannot open', () => {
+    const CHECKBOX = '.t { position: absolute; opacity: 0; } .drawer { display: none !important; } .t:checked ~ .drawer { display: flex !important; }'
+    const closedNav = `<nav id="m" hidden>${plainLinks}</nav>`
+    const HIDDEN = '[hidden] { display: none !important; }'
+    const UNUSABLE: [string, Parameters<typeof check>[0]][] = [
+      ['a disabled checkbox behind its label', { styles: CHECKBOX, html: `<header class="site-header"><input id="t" type="checkbox" class="t" disabled><label for="t">Menu</label><nav class="drawer">${plainLinks}</nav></header>` }],
+      ['a checkbox in a disabled fieldset', { styles: CHECKBOX, html: `<header class="site-header"><fieldset disabled style="display:contents"><input id="t" type="checkbox" class="t"><label for="t">Menu</label><nav class="drawer">${plainLinks}</nav></fieldset></header>` }],
+      ['a label tied to no checkbox', { styles: CHECKBOX, html: `<header class="site-header"><input id="t" type="checkbox" class="t"><label for="other">Menu</label><nav class="drawer">${plainLinks}</nav></header>` }],
+      ['a disabled popover button', { html: `<header><button popovertarget="m" disabled>Menu</button><nav id="m" popover>${plainLinks}</nav></header>` }],
+      ['a popover button in a disabled fieldset', { html: `<header><fieldset disabled><button popovertarget="m">Menu</button></fieldset><nav id="m" popover>${plainLinks}</nav></header>` }],
+      ['popovertarget on something that cannot activate it', { html: `<header><span popovertarget="m">Menu</span><nav id="m" popover>${plainLinks}</nav></header>` }],
+      ['a disabled scripted button', { javaScript: true, styles: HIDDEN, html: `<header class="site-header"><button disabled aria-controls="m" onclick="document.getElementById('m').hidden = false">Menu</button>${closedNav}</header>` }],
+      ['a scripted button marked aria-disabled', { javaScript: true, styles: HIDDEN, html: `<header class="site-header"><button aria-disabled="true" aria-controls="m" onclick="document.getElementById('m').hidden = false">Menu</button>${closedNav}</header>` }],
+    ]
+    for (const [name, fixture] of UNUSABLE) {
+      it(`reports ${name}`, async () => {
+        const { navFindings, read } = await check(fixture)
+        expect(read.navigation).toMatchObject({ status: 'checked', menus: [] })
+        expect(navFindings.map(finding => finding.code)).toEqual(['nav-links-hidden'])
+      })
+    }
+
+    it('still accepts a checkbox menu whose box is pressed through its label, and leaves it as it was', async () => {
+      const { navFindings, read, unchanged } = await check({ styles: CHECKBOX, html: `<header class="site-header"><label>Menu<input type="checkbox" class="t"><nav class="drawer">${plainLinks}</nav></label></header>` })
+      expect(navFindings).toEqual([])
+      expect(read.navigation).toMatchObject({ status: 'checked', menus: [expect.stringContaining('Menu')] })
+      expect(unchanged).toBe(true)
+    })
+  })
+
   it('does not take a menu button parked on a desktop for a lost destination', async () => {
     const styles = '.burger { display: none !important; }'
     const hash = await check({ width: 1280, styles, html: `<header class="site-header"><a class="burger" href="#">Menu</a><nav>${plainLinks}</nav></header>` })
@@ -451,6 +481,12 @@ describe('the checkResponsive tool', () => {
     const finding = broken.results[0].findings.find((f: { code: string }) => f.code === 'nav-links-hidden')
     expect(finding).toMatchObject({ page: 'about/index.html', message: expect.stringContaining('on about/index.html at 390px') })
     expect(JSON.stringify(site)).toBe(frozen)
+
+    // A menu that cannot open is not clean either.
+    const shut = { ...site, pages: { 'about/index.html': pageHtml(`<header class="site-header"><input id="t" type="checkbox" disabled><label for="t">Menu</label><nav class="drawer">${plainLinks}</nav></header>`, 'About', '../styles/site.css') }, styles: withSiteFoundation(`${AUTHOR}.drawer { display: none !important; } #t:checked ~ .drawer { display: flex !important; }`) }
+    const disabledMenu = await run({ document: shut, checkResponsive: (page: string, widths: number[]) => measure(shut, page, widths) })
+    expect(disabledMenu.clean).toBe(false)
+    expect(disabledMenu.results[0].findings.map((f: { code: string }) => f.code)).toContain('nav-links-hidden')
 
     // Nothing measured, or one width not measured, is never clean.
     expect((await run({ checkResponsive: async () => [] })).clean).toBe(false)

@@ -419,9 +419,11 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
     look()
     const menus: string[] = []
     let unnamedMenu = false
-    /** Open a menu in this measuring copy, keep what it reveals if it has a name, and shut it again. */
+    // :disabled takes in a disabled fieldset's controls too.
+    const disabled = (control: Element) => control.matches(':disabled, [aria-disabled="true"]')
+    /** Open a menu in this measuring copy by pressing its control, as a reader would, keep what it reveals if it has a name, and shut it again. */
     const attempt = (control: Element, open: () => void, close?: () => void) => {
-      if (reach(control) !== 'ok') return
+      if (reach(control) !== 'ok' || disabled(control)) return
       const before = new Set(reached)
       open()
       look()
@@ -443,25 +445,23 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
     for (const details of Array.from(body.querySelectorAll<HTMLDetailsElement>('details:not([open])'))) {
       const summary = details.querySelector(':scope > summary')
       if (!summary || !unreached().length) continue
-      attempt(summary, () => {
-        details.open = true
-        opened.push(details)
-      })
+      opened.push(details)
+      attempt(summary, () => (summary as HTMLElement).click())
       if (!nameOf(summary)) details.open = false
     }
     // The checkbox menu: a pressable label, or the box itself.
     for (const input of Array.from(body.querySelectorAll<HTMLInputElement>('input[type="checkbox"], input[type="radio"]'))) {
       if (!unreached().length) break
-      if (input.closest('form')) continue
+      if (input.closest('form') || disabled(input)) continue
       const control = Array.from(input.labels ?? []).find(label => reach(label) === 'ok') ?? input
       const was = input.checked
-      attempt(control, () => { input.checked = !was }, () => { input.checked = was })
+      attempt(control, () => control.click(), () => { input.checked = was })
     }
     // The native popover.
-    for (const control of Array.from(body.querySelectorAll('[popovertarget]'))) {
+    for (const control of Array.from(body.querySelectorAll<HTMLElement>('[popovertarget]'))) {
       const target = doc.getElementById(control.getAttribute('popovertarget') ?? '')
       if (!target || !unreached().length) continue
-      attempt(control, () => target.showPopover(), () => target.hidePopover())
+      attempt(control, () => control.click(), () => { if (target.matches(':popover-open')) target.hidePopover() })
     }
     // The :target panel: a link to an element that holds the links.
     for (const control of Array.from(body.querySelectorAll<HTMLAnchorElement>('a[href^="#"]'))) {
@@ -472,7 +472,7 @@ export function collectLayout(doc: Document, win: Window, width: number): Layout
     }
     // A scripted button: press it, and press it again to put it back.
     const scripted = Array.from(new Set([...roots.flatMap(root => Array.from(root.querySelectorAll('button, [role="button"]'))), ...Array.from(body.querySelectorAll('[aria-controls], [aria-expanded]'))])).filter(
-      control => reach(control) === 'ok' && !control.closest('form'),
+      control => reach(control) === 'ok' && !disabled(control) && !control.closest('form'),
     ) as HTMLElement[]
     for (const control of scripted) {
       if (!unreached().length) break
