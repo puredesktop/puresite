@@ -265,3 +265,31 @@ describe('telling the frame what each link is', () => {
     expect(out).not.toContain('data-site-link')
   })
 })
+
+it('previews and budgets encoded asset names and mixed srcset candidates', () => {
+  const html = '<img src="/assets/research%20image.png?v=2" srcset="data:image/png;base64,AA== 1x, /assets/research%20image.png 2x">'
+  const data = 'data:image/png;base64,AQID'
+  const out = previewDocument({ html, styles: '', assets: { 'research image.png': data } })
+  expect(out).toContain(`src="${data}"`)
+  expect(out).toContain(`srcset="data:image/png;base64,AA== 1x, ${data} 2x"`)
+  expect(referencedAssets(html)).toEqual(['research image.png'])
+  const huge = 'data:image/png;base64,' + 'A'.repeat(MAX_INLINE_BYTES)
+  expect(oversizeAssets('<img srcset="data:image/png;base64,AA== 1x, /assets/research%20image.png 2x">', { 'research image.png': huge })?.names).toEqual(['research image.png'])
+})
+
+it('does not inline or budget unused assets mentioned only in CSS comments', () => {
+  const html = '<link rel="stylesheet" href="styles/site.css"><p>Visible words</p>'
+  const styles = '/* background: url(../assets/reference.png) */ body { color: black }'
+  const assets = { 'reference.png': 'data:image/png;base64,' + 'A'.repeat(MAX_INLINE_BYTES) }
+  expect(oversizeAssets(html, assets, styles)).toBeNull()
+  expect(previewDocument({ html, styles, assets })).not.toContain('data:image/png')
+})
+
+it('leaves URL examples in CSS strings alone and still inlines real inline style URLs', () => {
+  const html = '<style>.example::before {content:"url(assets/reference.png)"}</style><p style="background:url(assets/hero.png)">Words</p>'
+  const assets = { 'hero.png': 'data:image/png;base64,AQID', 'reference.png': 'data:image/png;base64,' + 'A'.repeat(MAX_INLINE_BYTES) }
+  const out = previewDocument({ html, styles: '', assets })
+  expect(out).toContain('content:"url(assets/reference.png)"')
+  expect(out).toContain('background:url(data:image/png;base64,AQID)')
+  expect(oversizeAssets(html, assets)).toBeNull()
+})

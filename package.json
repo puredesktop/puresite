@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:head": "node scripts/verify-publication-head.mjs"
   },
   "dependencies": {
     "@purescience/platform-bridge": "file:../../packages/bridge",

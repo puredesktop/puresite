@@ -1,0 +1,7 @@
+{
+  "title": "Community research",
+  "pages": ["index.html", "about/index.html", "about/team/index.html"],
+  "target": "static-host",
+  "brief": "A local research group and its team.",
+  "assets": [{"name":"reference.png","description":"Private design reference","role":"reference"}]
+}

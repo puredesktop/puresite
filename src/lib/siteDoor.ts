@@ -96,9 +96,15 @@ export function admitSiteEdit(
   current: { content: SiteDocument; hash: string },
 ): SiteEditOutcome {
   // Every stylesheet that lands carries the app's foundation (siteFoundation.ts): one place, every path in.
+  // Where a site went is metadata. Recording it must not normalize an old
+  // stylesheet after those exact bytes have already been sent to the host.
+  const prepare = (next: SiteDocument, previous: SiteDocument): SiteDocument =>
+    next?.manifest && !validateSite(next) && next.manifest.published !== previous.manifest.published && siteHash(next) === siteHash(previous)
+      ? next
+      : withFoundation(next)
   const raw = typeof request.next === 'function' ? request.next : null
-  const transform = raw ? (content: SiteDocument) => withFoundation(raw(content)) : null
-  const next = transform ? transform(current.content) : withFoundation(request.next as SiteDocument)
+  const transform = raw ? (content: SiteDocument) => prepare(raw(content), content) : null
+  const next = transform ? transform(current.content) : prepare(request.next as SiteDocument, current.content)
 
   let baseHash = request.baseHash
   if (request.page !== undefined && baseHash !== undefined) {

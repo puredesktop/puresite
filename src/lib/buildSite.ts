@@ -10,7 +10,8 @@
  */
 import { siteFontFiles } from './siteFoundation'
 import { SITE_STYLESHEET } from '../constants'
-import { referencedAssets, stylesheetLinkState } from './preview'
+import { stylesheetLinkState } from './preview'
+import { localAssetReferences } from './siteReferences'
 import {
   orderedPages,
   relativePrefix,
@@ -28,7 +29,7 @@ export interface BuildResult {
   files: BuiltFile[]
   pages: number
   assets: string[]
-  /** Assets in the package that no page references — copied, but worth saying. */
+  /** Assets in the package that are unused and excluded from output. */
   unusedAssets: string[]
   totalBytes: number
 }
@@ -44,19 +45,12 @@ export function planBuild(
   availableAssets: string[],
 ): BuildResult {
   const files: BuiltFile[] = []
-  const used = new Set<string>()
-  // The open faces the stylesheet names are written into assets/fonts/ on save (siteFoundation.ts).
-  availableAssets = [...availableAssets, ...siteFontFiles(document.styles)]
-
+  availableAssets = [...new Set([...availableAssets, ...siteFontFiles(document.styles)])]
   for (const page of orderedPages(document)) {
-    const html = document.pages[page.path] ?? ''
-    files.push({ path: page.path, bytes: html.length })
-    for (const asset of referencedAssets(html)) used.add(asset)
+    files.push({ path: page.path, bytes: new TextEncoder().encode(document.pages[page.path] ?? '').length })
   }
-
-  files.push({ path: SITE_STYLESHEET, bytes: document.styles.length })
-  for (const asset of referencedAssets(document.styles)) used.add(asset)
-
+  files.push({ path: SITE_STYLESHEET, bytes: new TextEncoder().encode(document.styles).length })
+  const used = new Set(requiredAssetNames(document))
   const assets = [...used].filter(name => availableAssets.includes(name))
   for (const name of assets) files.push({ path: `assets/${name}`, bytes: 0 })
 
@@ -67,6 +61,17 @@ export function planBuild(
     unusedAssets: availableAssets.filter(name => !used.has(name)),
     totalBytes: files.reduce((sum, file) => sum + file.bytes, 0),
   }
+}
+
+/** The asset paths that can ship; reference-only and unused files are excluded. */
+export function requiredAssetNames(document: SiteDocument): string[] {
+  const references = new Set((document.manifest.assets ?? []).filter(asset => asset.role === 'reference').map(asset => asset.name))
+  const used = new Set<string>()
+  for (const [page, html] of Object.entries(document.pages)) {
+    for (const path of localAssetReferences(html, page)) if (path.startsWith('assets/')) used.add(path.slice('assets/'.length))
+  }
+  for (const path of localAssetReferences(document.styles, SITE_STYLESHEET)) if (path.startsWith('assets/')) used.add(path.slice('assets/'.length))
+  return [...used].filter(name => !references.has(name)).sort()
 }
 
 export type CheckSeverity = 'error' | 'warning'
@@ -99,7 +104,7 @@ export function checkSite(
 ): CheckFinding[] {
   const findings: CheckFinding[] = []
   const pages = Object.keys(document.pages)
-  availableAssets = [...availableAssets, ...siteFontFiles(document.styles)]
+  availableAssets = [...new Set([...availableAssets, ...siteFontFiles(document.styles)])]
 
   if (!pages.includes('index.html')) {
     findings.push({
@@ -158,17 +163,7 @@ export function checkSite(
       })
     }
 
-    for (const asset of referencedAssets(html)) {
-      if (!availableAssets.includes(asset)) {
-        findings.push({
-          severity: 'error',
-          code: 'missing-asset',
-          message: `${page} references assets/${asset}, which is not in the package`,
-          fix: 'add the file, or point the reference at one that is there',
-          page,
-        })
-      }
-    }
+    findings.push(...checkRequiredAssets(document, availableAssets, html, page))
 
     // A link to a page nobody has built is a promise, not a break: the page
     // is one the writing says should exist. It never reaches a reader as a
@@ -204,12 +199,23 @@ export function checkSite(
     }
   }
 
-  for (const asset of referencedAssets(document.styles)) {
-    if (!availableAssets.includes(asset)) findings.push({
-      severity: 'error', code: 'missing-asset',
-      message: `styles/site.css references assets/${asset}, which is not in the package`,
-      fix: 'add the file to assets/ or change the stylesheet reference',
-    })
-  }
+  findings.push(...checkRequiredAssets(document, availableAssets, document.styles, SITE_STYLESHEET))
   return findings
+}
+
+function checkRequiredAssets(document: SiteDocument, available: string[], source: string, fromFile: string): CheckFinding[] {
+  const references = new Set(document.manifest.assets.filter(asset => asset.role === 'reference').map(asset => asset.name))
+  return localAssetReferences(source, fromFile).flatMap(path => {
+    if (!path.startsWith('assets/') && Object.hasOwn(document.pages, path)) return []
+    const name = path.replace(/^assets\//, '')
+    const excluded = references.has(name)
+    if (path.startsWith('assets/') && available.includes(name) && !excluded) return []
+    return [{
+      severity: 'error' as const,
+      code: excluded ? 'reference-asset' : 'missing-asset',
+      message: `${fromFile} references ${path}, which is ${excluded ? 'reference-only material' : 'not in the package'}`,
+      fix: excluded ? 'use a public content asset instead, or explicitly change this file’s role to content' : 'add the file, or point the reference at one that is there; check the relative path from this file',
+      ...(fromFile === SITE_STYLESHEET ? {} : { page: fromFile }),
+    }]
+  })
 }
