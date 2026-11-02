@@ -1,0 +1,71 @@
+/* Compact PureSite, in or beside the Executive room (useCompactInRoom). The frame carries data-compact-room only then,
+   and the parts below carry their data-compact attributes only then, so with compact off nothing here applies. Chrome
+   is hidden, not removed: everything stays mounted, so state and agent tools stay alive. */
+
+/* The page is the whole thing, on white in any theme: a dark theme must not leave pale words on this paper. */
+[data-compact-room] {
+  color-scheme: light;
+  background: #ffffff;
+  color: #1f2328;
+  --platform-colors-bg: #ffffff;
+  --platform-colors-app-viewport: #ffffff;
+  --platform-colors-surface: #ffffff;
+  --platform-colors-elevated: #ffffff;
+  --platform-colors-text: #1f2328;
+  --platform-colors-text-secondary: #5b6169;
+  --pure-chrome-line: #e3e3e3;
+  --pure-chrome-soft: #5b6169;
+  --pure-chrome-muted: #7a8088;
+  --pure-chrome-hover: #f2f2f2;
+}
+
+/* The app header: wordmark, site switcher, share, assistant controls. */
+[data-compact-room] > header,
+[data-compact-room] [data-compact-hide] {
+  display: none !important;
+}
+
+/* The page comes to the edges of the box and lies flat: no margins, no grey stage, no card around it. */
+[data-compact-room] [data-compact-part='middle'] {
+  gap: 0;
+  padding: 0;
+}
+[data-compact-room] [data-compact-part='middle'] > * {
+  margin: 0;
+}
+[data-compact-room] [data-compact-part='stage'] {
+  padding: 0;
+  background: #ffffff;
+}
+[data-compact-room] [data-compact-part='page'] {
+  box-shadow: none;
+}
+
+/* Nothing open: one quiet line and one way forward, in the middle of the box. */
+[data-compact-room] .site-compact-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 0;
+  padding: 24px;
+}
+[data-compact-room] .site-compact-empty p {
+  margin: 0;
+  color: var(--platform-colors-text-secondary);
+  font-family: var(--platform-typography-font-family-content);
+  font-size: var(--pure-chrome-reading-size, 16px);
+  line-height: var(--pure-chrome-reading-line, 1.6);
+  text-align: center;
+}
+
+/* Held inside an entry of the room: flat on its paper from the first paint, before the hook has answered. The :not()
+   is there for its weight: WhiteNeutral paints this body grey with !important. */
+html[data-held-in-room]:not(#_) body {
+  background: #ffffff !important;
+  color: #1f2328;
+  --platform-colors-text: #1f2328;
+  --platform-colors-text-secondary: #5b6169;
+}

@@ -16,8 +16,90 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { styled } from 'styled-components'
 import { previewDocument } from '../lib/preview'
 
-const PICK_SCRIPT = `<script>(function () {
+export const PICK_SCRIPT = `<script>(function () {
   var picking = false;
+  // Compact, in the room: a click on words starts typing in them, with no picking first. Off, none of this runs.
+  var inPlace = false;
+  var INLINE = /^(A|ABBR|B|BDI|BDO|BR|CITE|CODE|DFN|EM|I|KBD|MARK|Q|S|SAMP|SMALL|SPAN|STRONG|SUB|SUP|TIME|U|VAR|WBR)$/;
+  var NOT_WORDS = /^(IMG|PICTURE|VIDEO|AUDIO|IFRAME|OBJECT|EMBED|CANVAS|SVG|MATH|INPUT|TEXTAREA|SELECT|OPTION|SCRIPT|STYLE|HTML|BODY)$/i;
+  function holdsOnlyWords(el) {
+    if (NOT_WORDS.test(el.tagName)) return false;
+    for (var i = 0; i < el.children.length; i++) {
+      if (!INLINE.test(el.children[i].tagName) || !holdsOnlyWords(el.children[i])) return false;
+    }
+    return true;
+  }
+  function hasOwnWords(el) {
+    for (var node = el.firstChild; node; node = node.nextSibling) {
+      if (node.nodeType === 3 && node.nodeValue.trim()) return true;
+    }
+    return false;
+  }
+  // What a click on this means: the running text it sits in, so a bold word edits its sentence, while a row of
+  // separate links stays separate. Nothing for a box of other boxes, or an empty one.
+  function wordsAt(el) {
+    if (!el.tagName || !holdsOnlyWords(el) || !(el.textContent || '').trim()) return null;
+    var parent = el.parentElement;
+    while (parent && parent !== document.body && hasOwnWords(parent) && holdsOnlyWords(parent)) {
+      el = parent;
+      parent = el.parentElement;
+    }
+    return el;
+  }
+  function caretAt(x, y) {
+    var range = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y);
+    var selection = window.getSelection && window.getSelection();
+    if (range && selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+  function clickInPlace(event) {
+    var target = event.target;
+    if (!target || !target.closest) return;
+    var link = target.closest('a[href]');
+    if (editing && (target === editing || editing.contains(target))) {
+      if (link) event.preventDefault();
+      return;
+    }
+    if (link && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      if (editing) commitEdit();
+      var to = link.getAttribute('data-site-link');
+      if (to) {
+        parent.postMessage({
+          type: 'puresite:navigate',
+          to: to,
+          state: link.getAttribute('data-site-state') || 'built',
+          text: (link.textContent || '').trim()
+        }, '*');
+      }
+      return;
+    }
+    if (editing) commitEdit();
+    var words = wordsAt(target);
+    if (!words) {
+      // The page's own buttons and menus keep working; only leaving the preview is stopped.
+      if (link) event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    words.classList.remove('__ps-can-edit');
+    startEdit(words);
+    caretAt(event.clientX, event.clientY);
+  }
+  function clearHover() {
+    var hovered = document.querySelectorAll('.__ps-can-edit');
+    for (var i = 0; i < hovered.length; i++) hovered[i].classList.remove('__ps-can-edit');
+  }
+  document.addEventListener('mouseover', function (event) {
+    if (!inPlace) return;
+    clearHover();
+    var words = event.target && !editing ? wordsAt(event.target) : null;
+    if (words) words.classList.add('__ps-can-edit');
+  });
+  document.documentElement.addEventListener('mouseleave', clearHover);
   function pathOf(el) {
     var parts = [];
     while (el && el.parentElement && el !== document.body) {
@@ -28,6 +110,15 @@ const PICK_SCRIPT = `<script>(function () {
   }
   window.addEventListener('message', function (event) {
     var data = event.data || {};
+    if (data.type === 'puresite:commit') {
+      if (editing) commitEdit();
+      parent.postMessage({ type: 'puresite:committed' }, '*');
+    }
+    if (data.type === 'puresite:edit-in-place') {
+      inPlace = !!data.on;
+      // The link marks are for working on the site; compact shows the page as it will look.
+      marks.media = inPlace ? 'not all' : '';
+    }
     if (data.type === 'puresite:picking') {
       picking = !!data.on;
       document.body.style.cursor = picking ? 'crosshair' : '';
@@ -57,6 +148,10 @@ const PICK_SCRIPT = `<script>(function () {
     a[data-site-state="promised"]:hover { outline-color: rgba(167,106,18,.55); }';
   document.head.appendChild(marks);
   document.addEventListener('click', function (event) {
+    if (inPlace) {
+      clickInPlace(event);
+      return;
+    }
     // The frame takes the mouse so the page can be SCROLLED, which means a
     // link would otherwise navigate it away from the site being previewed.
     var link = event.target && event.target.closest
@@ -105,8 +200,20 @@ const PICK_SCRIPT = `<script>(function () {
   }, true);
   var editing = null;
   var editingOriginal = '';
+  var editingWords = '';
   function serializeEdited(el) {
     var clone = el.cloneNode(true);
+    if (inPlace) {
+      // A sentence can hold links, and what the preview marks on a link must not reach the page that ships.
+      clone.classList.remove('__ps-can-edit');
+      // The browser leaves a <br> in an emptied element; empty it properly, since emptied means deleted.
+      if (!(clone.textContent || '').trim()) clone.innerHTML = '';
+      var marked = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll('[data-site-link]')));
+      marked.forEach(function (item) {
+        item.removeAttribute('data-site-link');
+        item.removeAttribute('data-site-state');
+      });
+    }
     clone.classList.remove('__ps-picked');
     if (!clone.classList.length) clone.removeAttribute('class');
     clone.removeAttribute('contenteditable');
@@ -115,7 +222,9 @@ const PICK_SCRIPT = `<script>(function () {
   function startEdit(el) {
     editing = el;
     editingOriginal = serializeEdited(el);
-    el.setAttribute('contenteditable', 'true');
+    editingWords = el.innerHTML;
+    // In place it stays words: a paste from Word brings its text, not its formatting.
+    el.setAttribute('contenteditable', inPlace ? 'plaintext-only' : 'true');
     el.focus();
   }
   function commitEdit() {
@@ -132,6 +241,18 @@ const PICK_SCRIPT = `<script>(function () {
     if (editing && event.target === editing) commitEdit();
   }, true);
   document.addEventListener('keydown', function (event) {
+    if (inPlace && editing && event.key === 'Enter') {
+      event.preventDefault();
+      editing.blur();
+      return;
+    }
+    if (inPlace && editing && event.key === 'Escape') {
+      editing.removeAttribute('contenteditable');
+      editing.innerHTML = editingWords;
+      editing = null;
+      event.stopPropagation();
+      return;
+    }
     if (event.key === 'Escape' && editing) {
       var el = editing;
       editing = null;
@@ -148,6 +269,8 @@ const PICK_SCRIPT = `<script>(function () {
     if (!body || !html) return;
     parent.postMessage({
       type: 'puresite:size',
+      // Without layout the root still reports the viewport's height; only having no boxes tells.
+      laidOut: body.getClientRects().length > 0,
       height: Math.max(
         body.scrollHeight, html.scrollHeight,
         body.offsetHeight, html.offsetHeight
@@ -162,10 +285,16 @@ const PICK_SCRIPT = `<script>(function () {
   setTimeout(reportSize, 0);
   setTimeout(reportSize, 400);
   var style = document.createElement('style');
-  style.textContent = '.__ps-picked { outline: 2px solid #1f6feb !important; outline-offset: 1px !important; }';
+  style.textContent = '.__ps-picked { outline: 2px solid #1f6feb !important; outline-offset: 1px !important; }\
+    .__ps-can-edit { cursor: text; outline: 1px dashed rgba(31,111,235,.45); outline-offset: 2px; }\
+    [contenteditable="plaintext-only"] { cursor: text; outline: 2px solid rgba(31,111,235,.7); outline-offset: 2px; }';
   document.head.appendChild(style);
   parent.postMessage({ type: 'puresite:ready' }, '*');
 })();</script>`
+
+const COMMIT_WAIT_MS = 250
+/** How long a page in the room gets to report a laid-out size before the frame is nudged, then replaced. */
+const LAYOUT_WAIT_MS = 1200
 
 export function PageFrame({
   html,
@@ -182,6 +311,8 @@ export function PageFrame({
   onNavigate,
   knownPages,
   interactive = false,
+  editInPlace = false,
+  commitRef,
 }: {
   html: string
   styles: string
@@ -204,8 +335,12 @@ export function PageFrame({
     label: string,
     at: { text: string; rect?: { x: number; y: number; width: number; height: number } },
   ) => void
-  /** Typing in the page itself: the edited element arrives serialized. */
-  onEdit?: (path: string, outerHtml: string) => void
+  /**
+   * Typing in the page itself: the edited element arrives serialized. Answers true when the frame already shows the
+   * result, so that in place the page need not reload under the person typing. `from` is the page the frame held when
+   * the words were typed, which is not always the page on screen by the time they arrive.
+   */
+  onEdit?: (path: string, outerHtml: string, from: string | undefined) => boolean | void
   /** A link was followed inside the preview: where it goes, and whether it exists. */
   onNavigate?: (to: string, state: 'built' | 'promised', text: string) => void
   /** Pages that exist, so the frame can tell a link from a promise. */
@@ -216,6 +351,10 @@ export function PageFrame({
    * every thumbnail would eat scrolls meant for the strip behind it.
    */
   interactive?: boolean
+  /** Compact: a click on words types in them, links stay put, and the person's own edit does not reload the page. */
+  editInPlace?: boolean
+  /** Filled in with: commit whatever is being typed, then do this. Moving away must not outrun the words. */
+  commitRef?: React.MutableRefObject<((then: () => void) => void) | null>
 }): React.ReactElement {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(0)
@@ -234,6 +373,35 @@ export function PageFrame({
       : `${prepared.slice(0, closing)}${PICK_SCRIPT}\n${prepared.slice(closing)}`)
   }, [html, styles, assets, page, knownPages])
 
+  // A reload jumps to the top and drops the next click. So in place, the edit the frame itself made is not loaded back
+  // into it; anything else that changes the page is. Coming back to the very text it loaded, after such an edit, must
+  // still load: the frame holds the edit, and the same srcDoc would not replace it.
+  const seenDoc = useRef(doc)
+  const loadedDoc = useRef(doc)
+  const ownEdit = useRef<string | null>(null)
+  // Leaving the frame commits what is being typed, and that can arrive after the move to another page has begun. The
+  // old page is in the frame until the new one says it is ready, so until then an edit belongs to the old page.
+  const framePage = useRef(page)
+  const afterCommit = useRef<(() => void) | null>(null)
+  // A sandboxed frame runs in its own process. If its srcdoc changes just after the first page lands there, Chromium can
+  // leave it believing it is display:none: the document is present but never laid out, so the page stays blank. Hiding
+  // and showing the element corrects that without a reload; replacing the frame is the last resort.
+  const laidOut = useRef(false)
+  const [frameKey, setFrameKey] = useState(0)
+  const nudgeFrame = useCallback(() => {
+    const element = frameRef.current
+    if (!element) return
+    element.style.display = 'none'
+    window.setTimeout(() => { element.style.display = '' }, 50)
+  }, [])
+  if (doc !== seenDoc.current) {
+    seenDoc.current = doc
+    if (!(editInPlace && ownEdit.current === (page ?? ''))) {
+      loadedDoc.current = doc === loadedDoc.current ? `${doc}\n<!-- reloaded -->` : doc
+    }
+    ownEdit.current = null
+  }
+
   const post = useCallback((message: unknown) => {
     frameRef.current?.contentWindow?.postMessage(message, '*')
   }, [])
@@ -247,7 +415,19 @@ export function PageFrame({
         label?: string
         height?: number
       }
-      if (data?.type === 'puresite:ready') setReady(count => count + 1)
+      if (data?.type === 'puresite:size') {
+        if ((data as { laidOut?: boolean }).laidOut) laidOut.current = true
+        else if (editInPlace) nudgeFrame()
+      }
+      if (data?.type === 'puresite:committed') {
+        const then = afterCommit.current
+        afterCommit.current = null
+        then?.()
+      }
+      if (data?.type === 'puresite:ready') {
+        framePage.current = page
+        setReady(count => count + 1)
+      }
       if (data?.type === 'puresite:navigate' && typeof (data as { to?: unknown }).to === 'string') {
         const move = data as { to: string; state?: string; text?: string }
         onNavigate?.(move.to, move.state === 'promised' ? 'promised' : 'built', move.text ?? '')
@@ -269,15 +449,52 @@ export function PageFrame({
         typeof data.path === 'string' &&
         typeof (data as { outerHtml?: unknown }).outerHtml === 'string'
       ) {
-        onEdit?.(data.path, restoreEmbeddedVideoPreview((data as { outerHtml: string }).outerHtml))
+        const from = framePage.current
+        const shown = onEdit?.(data.path, restoreEmbeddedVideoPreview((data as { outerHtml: string }).outerHtml), from)
+        if (editInPlace && shown === true && from === page) ownEdit.current = page ?? ''
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [onPick, onEdit, onNavigate])
+  }, [onPick, onEdit, onNavigate, editInPlace, page, nudgeFrame])
 
   // `ready` is in every dep list: a frame that has just loaded has not seen
   // anything sent before it existed.
+  const frameDoc = editInPlace ? loadedDoc.current : doc
+  useEffect(() => {
+    laidOut.current = false
+  }, [frameDoc])
+  useEffect(() => {
+    if (!editInPlace) return undefined
+    let attempts = 0
+    const timer = window.setInterval(() => {
+      if (laidOut.current || attempts === 2) {
+        window.clearInterval(timer)
+        return
+      }
+      attempts += 1
+      if (attempts === 1) nudgeFrame()
+      else setFrameKey(key => key + 1)
+    }, LAYOUT_WAIT_MS)
+    return () => window.clearInterval(timer)
+  }, [editInPlace, frameDoc, nudgeFrame])
+  useEffect(() => {
+    if (!commitRef) return undefined
+    commitRef.current = then => {
+      afterCommit.current = then
+      post({ type: 'puresite:commit' })
+      // A frame still loading has nothing being typed, and will not answer.
+      window.setTimeout(() => {
+        if (afterCommit.current !== then) return
+        afterCommit.current = null
+        then()
+      }, COMMIT_WAIT_MS)
+    }
+    return () => { commitRef.current = null }
+  }, [commitRef, post])
+  useEffect(() => {
+    post({ type: 'puresite:edit-in-place', on: editInPlace })
+  }, [post, editInPlace, ready])
   useEffect(() => {
     post({ type: 'puresite:picking', on: picking })
   }, [post, picking, ready])
@@ -308,10 +525,11 @@ export function PageFrame({
       }}
     >
       <Frame
+        key={frameKey}
         ref={frameRef}
         sandbox="allow-scripts allow-presentation"
         allow="fullscreen; encrypted-media; picture-in-picture"
-        srcDoc={doc}
+        srcDoc={frameDoc}
         title="Page preview"
         $interactive={picking || interactive}
         style={{

@@ -44,6 +44,8 @@ import { SiteBoardView } from './components/SiteBoardView'
 import { NewSiteWizard } from './components/NewSiteWizard'
 import { PublishDialog, type PublishState } from './components/PublishDialog'
 import { usePureSiteAgentTools } from './hooks/usePureSiteAgentTools'
+import { useCompactInRoom } from './hooks/useCompactInRoom'
+import { Button } from '@purescience/platform-ui/components/common/buttons/Button'
 import {
   AUTOSAVE_DELAY_MS,
   DEFAULT_HOME_PAGE,
@@ -256,6 +258,9 @@ export function App(): React.ReactElement {
   const drawerRequestRef = useRef<DrawerRequest | null>(null)
   const drawerCommitBusy = useRef(false)
   const { resource, clearResource } = usePlatformViewportResource(ready, meta)
+
+  const compact = useCompactInRoom()
+  const compactFrame = compact ? { 'data-compact-room': '' } : undefined
 
   const [document, setDocument] = useState<SiteDocument>(
     createDefaultSiteDocument,
@@ -2212,7 +2217,7 @@ export function App(): React.ReactElement {
 
   if (bridgeError) {
     return (
-      <AppFrame>
+      <AppFrame {...compactFrame}>
         <EmptyState
           tone="error"
           title="Bridge unavailable"
@@ -2224,7 +2229,7 @@ export function App(): React.ReactElement {
 
   if (!ready) {
     return (
-      <AppFrame>
+      <AppFrame {...compactFrame}>
         <EmptyState
           tone="neutral"
           title="PureSite"
@@ -2234,7 +2239,7 @@ export function App(): React.ReactElement {
     )
   }
 
-  if (opening) return <AppFrame><EmptyState tone="neutral" title="Opening site" message="Reading the site’s files…" /></AppFrame>
+  if (opening) return <AppFrame {...compactFrame}><EmptyState tone="neutral" title="Opening site" message="Reading the site’s files…" /></AppFrame>
 
   const hasOpenSite = documentStarted || documentPath !== null
 
@@ -2242,6 +2247,7 @@ export function App(): React.ReactElement {
 
   return (
     <AppFrame
+      {...compactFrame}
       data-app={SITE_APP_SLUG}
       identityAppSlug={SITE_APP_SLUG}
       headerDocumentName={
@@ -2257,10 +2263,18 @@ export function App(): React.ReactElement {
     >
       {error && <InlineBanner variant="danger" onDismiss={() => setError(null)}>{error}</InlineBanner>}
       {!hasOpenSite ? (
+        <>
+        {compact ? (
+          <div className="site-compact-empty">
+            <p>No site is open here.</p>
+            <Button onClick={() => void createNewSite()}>New site</Button>
+          </div>
+        ) : null}
         <DocumentSwitcher
           appSlug={SITE_APP_SLUG}
           suffixes={[SITE_PACKAGE_SUFFIX]}
           variant="landing"
+          open={!compact}
           previewStyle="grid"
           loadPreview={loadSitePreview}
           onChooseFromSystem={chooseSiteFromSystem}
@@ -2271,6 +2285,7 @@ export function App(): React.ReactElement {
           itemNoun="site"
           itemNounPlural="sites"
         />
+        </>
       ) : (
         <>
           <SiteBoardView
@@ -2323,8 +2338,9 @@ export function App(): React.ReactElement {
               setSelection(null)
             }}
             onSelectElement={setSelection}
+            compact={compact}
             onEditElement={(page, path, outerHtml) => {
-              if (documentRef.current.pages[page] === undefined) return
+              if (documentRef.current.pages[page] === undefined) return false
               // The element was serialized from the INLINED preview: its images
               // carry the data URLs the preview put there. Back to assets/ paths
               // first, or megabytes of base64 land in pages/*.html and ship.
@@ -2354,15 +2370,17 @@ export function App(): React.ReactElement {
               })
               if (!landed.ok) {
                 setStatus(landed.message)
-                return
+                return false
               }
               if (!landed.changed) {
                 setStatus(
                   'The edited element could not be found — the page may have changed underneath it.',
                 )
-                return
+                return false
               }
               setStatus(emptied ? 'Element deleted.' : 'Edited.')
+              // The frame shows what was typed; a deleted element it still holds, so that one reloads.
+              return !emptied
             }}
             onBuildPromise={(path, title, brief) => {
               // The page is made here so the link stops being a promise at
@@ -2567,7 +2585,7 @@ export function App(): React.ReactElement {
             onOpenBrand={() => setBrandOpen(true)}
           />
 
-          {brandOpen ? (
+          {brandOpen && !compact ? (
             <BrandSheet
               brand={siteBrand}
               offered={offersBrands}
@@ -2590,7 +2608,7 @@ export function App(): React.ReactElement {
           ) : null}
 
           <NewSiteWizard
-            open={wizardOpen}
+            open={wizardOpen && !compact}
             brief={document.manifest.brief}
             onBrief={brief =>
               applyDocument(current => ({
@@ -2641,7 +2659,7 @@ export function App(): React.ReactElement {
           />
 
           <PublishDialog
-            open={publishOpen}
+            open={publishOpen && !compact}
             state={publish}
             findings={findings}
             verification={verification}
@@ -2687,7 +2705,7 @@ export function App(): React.ReactElement {
         previewStyle="grid"
         loadPreview={loadSitePreview}
         onChooseFromSystem={chooseSiteFromSystem}
-        open={switcherOpen}
+        open={switcherOpen && !compact}
         onClose={() => setSwitcherOpen(false)}
         onOpenDocument={(path: string) => {
           setSwitcherOpen(false)
