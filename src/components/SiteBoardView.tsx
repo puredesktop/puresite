@@ -25,6 +25,7 @@ import { ChangesSheet } from './ChangesSheet'
 import { SelectionAsk } from './SelectionAsk'
 import { CommandPalette } from './CommandPalette'
 import { QuestionsSheet } from './QuestionsSheet'
+import { CompactPageBar } from './CompactPageBar'
 import {
   linkGraph,
   linksForPage,
@@ -103,6 +104,7 @@ export function SiteBoardView({
   exporting,
   brandChip,
   onOpenBrand,
+  compact = false,
 }: {
   document: SiteDocument
   pages: SitePage[]
@@ -137,7 +139,7 @@ export function SiteBoardView({
   onSelectPage: (page: string) => void
   onSelectElement: (selection: SiteSelection | null) => void
   /** Typing in the page itself: the edited element arrives serialized. */
-  onEditElement: (page: string, path: string, outerHtml: string) => void
+  onEditElement: (page: string, path: string, outerHtml: string) => boolean | void
   onAddPage: () => void
   /** Build a page some link promised, from the sentences that promised it. */
   onBuildPromise: (path: string, title: string, brief: string) => void
@@ -177,6 +179,8 @@ export function SiteBoardView({
   brandChip: { label: string; title: string } | null
   /** The brand sheet: which brand, and "Propose to organisation…". */
   onOpenBrand: () => void
+  /** In or beside the Executive room: the page, its words and its neighbours. Everything else stays mounted, hidden. */
+  compact?: boolean
 }): React.ReactElement {
   // The site map used to be a column of cards here. The links in the content
   // are the map now, so this strip opens only for what is not a page: the
@@ -198,9 +202,17 @@ export function SiteBoardView({
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyNow = Date.now()
 
+  // Off, both of these add nothing to the DOM. Compact's look is in compact-in-room.css.
+  const hidden = compact ? { 'data-compact-hide': '' } : undefined
+  const part = (name: string) => (compact ? { 'data-compact-part': name } : undefined)
+  // The box is the reader's screen here: the person's preview size is kept for the full app, not lost.
+  const shownViewport: ViewportId = compact ? 'desktop' : viewport
+  const stageInset = compact ? 0 : STAGE_INSET
+
+  const commitFrame = useRef<((then: () => void) => void) | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageSize,setStageSize]=useState({width:0,height:0})
-  const frame=previewViewport(viewport,stageSize)
+  const frame=previewViewport(shownViewport,stageSize)
   const zoom=frame.scale
 
   useLayoutEffect(()=>{
@@ -209,8 +221,8 @@ export function SiteBoardView({
     const measure=()=>{
       // The design fits inside the stage's grey inset, not under it.
       const box=node.getBoundingClientRect()
-      const width=box.width-2*STAGE_INSET
-      const height=box.height-2*STAGE_INSET
+      const width=box.width-2*stageInset
+      const height=box.height-2*stageInset
       if(width<=0||height<=0)return
       setStageSize(current=>current.width===width&&current.height===height?current:{width,height})
     }
@@ -220,10 +232,10 @@ export function SiteBoardView({
     // Keep the window fallback for embedded hosts that miss observer callbacks.
     window.addEventListener('resize',measure)
     return ()=>{observer.disconnect();window.removeEventListener('resize',measure)}
-  },[viewport,tab,pages.length])
+  },[viewport,tab,pages.length,stageInset])
   useLayoutEffect(()=>{
-    onPreviewViewport({id:viewport,width:frame.width,height:frame.height})
-  },[viewport,frame.width,frame.height,onPreviewViewport])
+    onPreviewViewport({id:shownViewport,width:frame.width,height:frame.height})
+  },[shownViewport,frame.width,frame.height,onPreviewViewport])
 
   const html = document.pages[selectedPage] ?? ''
   const selectedTitle = pages.find(page => page.path === selectedPage)?.title ?? selectedPage
@@ -275,7 +287,14 @@ export function SiteBoardView({
     reason => !pageFindings.some(finding => finding.message === reason),
   )
 
-  const highlight = useMemo(() => (picked ? [picked.path] : []), [picked])
+  const highlight = useMemo(() => (picked && !compact ? [picked.path] : []), [picked, compact])
+
+  /** Compact never shows a blank sheet without saying so. */
+  const pageIsBlank = useMemo(() => {
+    if (!compact) return false
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    return !(body.textContent ?? '').trim() && !body.querySelector('img, picture, video, svg, iframe, canvas')
+  }, [compact, html])
 
   /**
    * Data is a tab only when the site is trying to collect something.
@@ -297,10 +316,10 @@ export function SiteBoardView({
       // the site, ⌘P is the one box for its pages, promises and asks.
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
         event.preventDefault()
-        setFindOpen(open => !open)
+        if (!compact) setFindOpen(open => !open)
         return
       }
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'm') return
+      if (compact || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'm') return
       // Typing in the ask box, a page title or a file description is not a
       // request for the map.
       const target = event.target as HTMLElement | null
@@ -310,7 +329,7 @@ export function SiteBoardView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [compact])
 
   // A tab that disappears must not leave the strip showing nothing.
   useEffect(() => {
@@ -375,9 +394,9 @@ export function SiteBoardView({
   )
 
   return (
-    <Board $strip={tab !== 'none'}>
+    <Board $strip={tab !== 'none' && !compact}>
       {tab === 'none' ? null : (
-      <Strip>
+      <Strip {...hidden}>
         {tab === 'data' ? (
           <Files>
             {!dataProvider ? (
@@ -516,8 +535,20 @@ export function SiteBoardView({
       </Strip>
       )}
 
-      <Middle>
-        <Head>
+      <Middle {...part('middle')}>
+        {compact ? (
+          <CompactPageBar
+            pages={pages}
+            selectedPage={selectedPage}
+            onSelectPage={page => {
+              if (commitFrame.current) commitFrame.current(() => onSelectPage(page))
+              else onSelectPage(page)
+            }}
+            status={status}
+            statusAction={statusAction}
+          />
+        ) : null}
+        <Head {...hidden}>
           <Tabs>
             <Tab
               type="button"
@@ -627,9 +658,9 @@ export function SiteBoardView({
           </PrimaryButton>
         </Head>
 
-        <Stage ref={stageRef}>
+        <Stage ref={stageRef} {...part('stage')}>
           {/* The viewport fills the stage; the page scrolls inside the iframe. */}
-          <StagePage data-video-drop-surface style={{ width: frame.width * zoom }} {...withOpenSurface(selectedRefs)}>
+          <StagePage data-video-drop-surface style={{ width: frame.width * zoom }} {...withOpenSurface(selectedRefs)} {...part('page')}>
             <PageFrame
               html={html}
               styles={document.styles}
@@ -641,17 +672,21 @@ export function SiteBoardView({
               interactive
               knownPages={graph.pages}
               onNavigate={(to, state) => {
-                if (state === 'promised') openPromise(to)
-                else onSelectPage(to)
+                if (state === 'promised') {
+                  if (!compact) openPromise(to)
+                } else onSelectPage(to)
               }}
-              picking={picking}
+              picking={picking && !compact}
+              editInPlace={compact}
+              commitRef={commitFrame}
               highlight={highlight}
               onPick={handlePick}
-              onEdit={(path, outerHtml) =>
-                onEditElement(selectedPage, path, outerHtml)
+              onEdit={(path, outerHtml, from) =>
+                onEditElement(compact && from ? from : selectedPage, path, outerHtml)
               }
             />
-            {selection && selection.page === selectedPage && pickedAt ? (
+            {pageIsBlank ? <BlankPage>Nothing on this page yet.</BlankPage> : null}
+            {!compact && selection && selection.page === selectedPage && pickedAt ? (
             <SelectionAsk
               document={document}
               page={selectedPage}
@@ -681,7 +716,7 @@ export function SiteBoardView({
           </StagePage>
         </Stage>
 
-        <Foot>
+        <Foot {...hidden}>
           {document.manifest.published?.url ? (
             <Sides role="group" aria-label="Which site to show">
               {(['draft', 'both', 'live'] as const).map(option => (
@@ -715,7 +750,7 @@ export function SiteBoardView({
           </PickToggle>
         </Foot>
 
-        <StatusFoot>
+        <StatusFoot {...hidden}>
           <Mono role="status">
             {status || urlPathFor(selectedPage)}
             {zoom < 1 ? ` · ${Math.round(zoom * 100)}% of ${frame.width}px` : ''}
@@ -733,7 +768,7 @@ export function SiteBoardView({
         </StatusFoot>
       </Middle>
 
-      <Rail>
+      <Rail {...hidden}>
         <RailHead>
           <Mono>{selectedPage}</Mono>
           <span style={{ flex: 1 }} />
@@ -974,7 +1009,7 @@ export function SiteBoardView({
           </AskBoxFoot>
         </AskBox>
       </Rail>
-      {questionsOpen ? (
+      {questionsOpen && !compact ? (
         <QuestionsSheet
           document={document}
           graph={graph}
@@ -994,7 +1029,7 @@ export function SiteBoardView({
         />
       ) : null}
 
-      {findOpen ? (
+      {findOpen && !compact ? (
         <CommandPalette
           document={document}
           graph={graph}
@@ -1008,7 +1043,7 @@ export function SiteBoardView({
         />
       ) : null}
 
-      {changesOpen ? (
+      {changesOpen && !compact ? (
         <ChangesSheet
           document={document}
           draft={draft}
@@ -1029,7 +1064,7 @@ export function SiteBoardView({
         />
       ) : null}
 
-      {workOpen ? (
+      {workOpen && !compact ? (
         <WorkList
           document={document}
           graph={graph}
@@ -1062,7 +1097,7 @@ export function SiteBoardView({
         />
       ) : null}
 
-      {mapOpen ? (
+      {mapOpen && !compact ? (
         <SiteMapOverlay
           document={document}
           previews={previews}
@@ -1091,7 +1126,7 @@ export function SiteBoardView({
         />
       ) : null}
 
-      {promise ? (
+      {promise && !compact ? (
         <PromiseSheet
           promise={promise}
           document={document}
@@ -1420,6 +1455,19 @@ const StagePage = styled.div`
   align-self: flex-start;
   /* A fine edge: a light design would otherwise melt into the stage around it. */
   box-shadow: 0 0 0 1px var(--pure-chrome-line), 0 8px 24px rgb(0 0 0 / 0.06);
+`
+
+/** Compact only: a page with nothing on it says so, on the page, rather than looking broken. */
+const BlankPage = styled.p`
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--platform-colors-text-secondary);
+  font-family: var(--platform-typography-font-family-content);
+  font-size: var(--pure-chrome-reading-size, 16px);
+  pointer-events: none;
 `
 
 const Foot = styled.div`
