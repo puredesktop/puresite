@@ -69,3 +69,56 @@ html[data-held-in-room]:not(#_) body {
   --platform-colors-text: #1f2328;
   --platform-colors-text-secondary: #5b6169;
 }
+
+/* The held look: one white surface edge to edge, hairlines instead of boxes, 3px corners, 13px and 12px type in sentence case,
+   one muted navy. The page itself is the user's site and keeps all of its own styling; only the chrome around it is calmed.
+   The :not(#_) gives these the weight to settle the platform's own values. */
+[data-compact-room]:not(#_) {
+  --pure-chrome-line: #dde1e7;
+  --pure-chrome-hover: #f5f6f8;
+  --pure-chrome-soft: #545b66;
+  --pure-chrome-muted: #6b7380;
+  --platform-colors-text: #161d27;
+  --platform-colors-border: #dde1e7;
+}
+[data-compact-room] [aria-label='Pages']:not(#_) {
+  gap: 0;
+}
+[data-compact-room] [aria-label='Pages'] button:not(#_) {
+  height: 28px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+[data-compact-room] [aria-label='Pages'] button[aria-current='page']:not(#_) {
+  background: #eef0f3;
+  color: #161d27;
+  font-weight: 600;
+}
+[data-compact-room] [role='status']:not(#_) {
+  font-size: 12px;
+}
+/* The words in the middle of the box are interface, not reading: the app's sans at 13px, with one flat navy way forward. */
+[data-compact-room] .site-compact-empty p:not(#_) {
+  font-family: var(--platform-typography-font-family, inherit);
+  font-size: 13px;
+  line-height: 1.5;
+  color: #545b66;
+}
+[data-compact-room] .site-compact-empty button:not(#_) {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid #1f3a5f;
+  border-radius: 3px;
+  background: #1f3a5f;
+  box-shadow: none;
+  color: #ffffff;
+  font-family: var(--platform-typography-font-family, inherit);
+  font-size: 13px;
+  font-weight: 500;
+}
+[data-compact-room] .site-compact-empty button span:not(#_) {
+  color: inherit;
+  font: inherit;
+}
