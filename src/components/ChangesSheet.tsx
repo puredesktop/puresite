@@ -25,7 +25,8 @@ export function ChangesSheet({
   onOpenPage: (page: string) => void
   /** Show this page beside the published one. */
   onCompare: (page: string) => void
-  onPublish: () => void
+  /** Absent where this person cannot publish. */
+  onPublish?: () => void
   onClose: () => void
 }): React.ReactElement {
   useEffect(() => {
@@ -147,9 +148,11 @@ export function ChangesSheet({
               : 'Publishing sends the whole site; unchanged pages are not re-sent.'}
           </Quiet>
           <span style={{ flex: 1 }} />
-          <Primary type="button" onClick={onPublish} disabled={draft.matchesLive}>
-            Publish…
-          </Primary>
+          {onPublish ? (
+            <Primary type="button" onClick={onPublish} disabled={draft.matchesLive}>
+              Publish…
+            </Primary>
+          ) : null}
         </Foot>
       </Sheet>
     </Scrim>

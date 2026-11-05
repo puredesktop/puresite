@@ -20,6 +20,7 @@ export function SelectionAsk({
   text,
   at,
   busy,
+  agents = true,
   onAsk,
   onLink,
   onDismiss,
@@ -34,6 +35,8 @@ export function SelectionAsk({
   /** Where to sit, in stage coordinates. */
   at: { x: number; y: number; width: number; height: number }
   busy: boolean
+  /** False where this person has no agents: linking still works, asking does not show. */
+  agents?: boolean
   onAsk: (request: string) => void
   onLink: (href: string) => void
   onDismiss: () => void
@@ -107,35 +110,41 @@ export function SelectionAsk({
         </Stack>
       ) : (
         <Stack>
-          <Row>
-            <Input
-              ref={inputRef}
-              value={request}
-              placeholder={`Say what this ${label} should be…`}
-              aria-label={`Say what this ${label} should be`}
-              disabled={busy}
-              onChange={event => setRequest(event.currentTarget.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  send()
-                }
-              }}
-            />
-            <Send type="button" onClick={send} disabled={busy || !request.trim()}>
-              {busy ? 'Working…' : 'Ask'}
-            </Send>
-          </Row>
+          {agents ? (
+            <Row>
+              <Input
+                ref={inputRef}
+                value={request}
+                placeholder={`Say what this ${label} should be…`}
+                aria-label={`Say what this ${label} should be`}
+                disabled={busy}
+                onChange={event => setRequest(event.currentTarget.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    send()
+                  }
+                }}
+              />
+              <Send type="button" onClick={send} disabled={busy || !request.trim()}>
+                {busy ? 'Working…' : 'Ask'}
+              </Send>
+            </Row>
+          ) : null}
           <Row>
             <Primary type="button" onClick={() => setLinking(true)}>
               Link this to…
             </Primary>
-            <Ghost type="button" onClick={() => onAsk('Say this in fewer words, same meaning.')}>
-              Shorten
-            </Ghost>
-            <Ghost type="button" onClick={() => onAsk('Turn this into a list.')}>
-              Make it a list
-            </Ghost>
+            {agents ? (
+              <>
+                <Ghost type="button" onClick={() => onAsk('Say this in fewer words, same meaning.')}>
+                  Shorten
+                </Ghost>
+                <Ghost type="button" onClick={() => onAsk('Turn this into a list.')}>
+                  Make it a list
+                </Ghost>
+              </>
+            ) : null}
             <span style={{ flex: 1 }} />
             <Ghost type="button" onClick={onDismiss}>
               Done
