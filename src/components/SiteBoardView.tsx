@@ -16,6 +16,8 @@ import {
   useState,
 } from 'react'
 import { styled } from 'styled-components'
+import { agentsOffered } from '@purescience/platform-ui/bridge/workspace'
+import { outputOffered } from '../lib/offered'
 import {previewViewport,type PreviewViewport} from '../lib/previewViewport'
 import { PageFrame } from './PageFrame'
 import { SiteMapOverlay } from './SiteMapOverlay'
@@ -197,6 +199,8 @@ export function SiteBoardView({
   const [livePage, setLivePage] = useState<{ page: string; html: string | null } | null>(null)
   /** A page a link promises, opened from the content or from the map. */
   const [promise, setPromise] = useState<PromisedPage | null>(null)
+  const agents = agentsOffered()
+  const output = outputOffered()
   const [request, setRequest] = useState('')
   const [filesOpen, setFilesOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -466,7 +470,7 @@ export function SiteBoardView({
                   writes the missing ones by looking; any can be corrected by
                   hand, and a hand edit is kept as the author's.
                 */}
-                {material.some(
+                {agents && material.some(
                   item => item.kind === 'image' && !item.description.trim(),
                 ) ? (
                   <GhostButton
@@ -550,13 +554,15 @@ export function SiteBoardView({
         ) : null}
         <Head {...hidden}>
           <Tabs>
-            <Tab
-              type="button"
-              onClick={() => setQuestionsOpen(true)}
-              title="Put a reader's question to the site and see whether it answers"
-            >
-              Ask
-            </Tab>
+            {agents ? (
+              <Tab
+                type="button"
+                onClick={() => setQuestionsOpen(true)}
+                title="Put a reader's question to the site and see whether it answers"
+              >
+                Ask
+              </Tab>
+            ) : null}
             <Tab
               type="button"
               onClick={() => setFindOpen(true)}
@@ -640,22 +646,26 @@ export function SiteBoardView({
               {brandChip.label}
             </BrandChip>
           ) : null}
-          <Sep aria-hidden />
-          <ToolbarButton type="button" onClick={onOpenHtml}>
-            HTML
-          </ToolbarButton>
-          <ToolbarButton type="button" onClick={onOpenInBrowser}>
-            Open in browser
-          </ToolbarButton>
-          <ToolbarButton type="button" disabled={exporting} title="Save the current page as a printable PDF for review" onClick={() => onExport('pdf')}>
-            {exporting ? 'Exporting…' : 'Export PDF'}
-          </ToolbarButton>
-          <ToolbarButton type="button" disabled={exporting} title="Save the full current page as a PNG at the preview width" onClick={() => onExport('png')}>
-            Export PNG
-          </ToolbarButton>
-          <PrimaryButton type="button" onClick={onPublish}>
-            Publish…
-          </PrimaryButton>
+          {output ? (
+            <>
+              <Sep aria-hidden />
+              <ToolbarButton type="button" onClick={onOpenHtml}>
+                HTML
+              </ToolbarButton>
+              <ToolbarButton type="button" onClick={onOpenInBrowser}>
+                Open in browser
+              </ToolbarButton>
+              <ToolbarButton type="button" disabled={exporting} title="Save the current page as a printable PDF for review" onClick={() => onExport('pdf')}>
+                {exporting ? 'Exporting…' : 'Export PDF'}
+              </ToolbarButton>
+              <ToolbarButton type="button" disabled={exporting} title="Save the full current page as a PNG at the preview width" onClick={() => onExport('png')}>
+                Export PNG
+              </ToolbarButton>
+              <PrimaryButton type="button" onClick={onPublish}>
+                Publish…
+              </PrimaryButton>
+            </>
+          ) : null}
         </Head>
 
         <Stage ref={stageRef} {...part('stage')}>
@@ -699,6 +709,7 @@ export function SiteBoardView({
                 height: pickedAt.rect.height * zoom,
               }}
               busy={asking}
+              agents={agents}
               onAsk={request => {
                 setPickedAt(null)
                 onAsk(request)
@@ -853,28 +864,32 @@ export function SiteBoardView({
           </>
         ) : null}
 
-        <SectionLabel>{scopeHead}</SectionLabel>
-        <Scope>
-          <ScopeButton
-            type="button"
-            onClick={() =>
-              onPageSelection(
-                pageSelection.length === pages.length
-                  ? []
-                  : pages.map(page => page.path),
-              )
-            }
-          >
-            {pageSelection.length === pages.length
-              ? 'Whole site'
-              : 'Select all pages'}
-          </ScopeButton>
-          {pageSelection.length ? (
-            <ScopeButton type="button" onClick={() => onPageSelection([])}>
-              Clear ({pageSelection.length})
-            </ScopeButton>
-          ) : null}
-        </Scope>
+        {agents ? (
+          <>
+            <SectionLabel>{scopeHead}</SectionLabel>
+            <Scope>
+              <ScopeButton
+                type="button"
+                onClick={() =>
+                  onPageSelection(
+                    pageSelection.length === pages.length
+                      ? []
+                      : pages.map(page => page.path),
+                  )
+                }
+              >
+                {pageSelection.length === pages.length
+                  ? 'Whole site'
+                  : 'Select all pages'}
+              </ScopeButton>
+              {pageSelection.length ? (
+                <ScopeButton type="button" onClick={() => onPageSelection([])}>
+                  Clear ({pageSelection.length})
+                </ScopeButton>
+              ) : null}
+            </Scope>
+          </>
+        ) : null}
         <FileDrawer>
           <Disclosure
             type="button"
@@ -963,51 +978,53 @@ export function SiteBoardView({
           </AssetRow>
         ) : null}
 
-        <AskBox>
-          <AskInput
-            value={request}
-            placeholder={
-              picked
-                ? 'Make this two lines, and give it more room above…'
-                : pageSelection.length > 1
-                  ? 'Give every one of these the same footer…'
-                  : 'Add an about page with the three services…'
-            }
-            spellCheck={false}
-            onChange={event => setRequest(event.currentTarget.value)}
-            onKeyDown={event => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault()
-                submitRequest()
+        {agents ? (
+          <AskBox>
+            <AskInput
+              value={request}
+              placeholder={
+                picked
+                  ? 'Make this two lines, and give it more room above…'
+                  : pageSelection.length > 1
+                    ? 'Give every one of these the same footer…'
+                    : 'Add an about page with the three services…'
               }
-            }}
-          />
-          <AskBoxFoot>
-            <AskHint>{asking ? 'Working…' : scopeHint}</AskHint>
-            <span style={{ flex: 1 }} />
-            <Kbd>⌘⏎</Kbd>
-            <SendButton
-              type="button"
-              aria-label="Send"
-              disabled={!request.trim() || asking}
-              onClick={submitRequest}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              spellCheck={false}
+              onChange={event => setRequest(event.currentTarget.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  submitRequest()
+                }
+              }}
+            />
+            <AskBoxFoot>
+              <AskHint>{asking ? 'Working…' : scopeHint}</AskHint>
+              <span style={{ flex: 1 }} />
+              <Kbd>⌘⏎</Kbd>
+              <SendButton
+                type="button"
+                aria-label="Send"
+                disabled={!request.trim() || asking}
+                onClick={submitRequest}
               >
-                <path d="M22 2 11 13" />
-                <path d="M22 2 15 22l-4-9-9-4z" />
-              </svg>
-            </SendButton>
-          </AskBoxFoot>
-        </AskBox>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M22 2 11 13" />
+                  <path d="M22 2 15 22l-4-9-9-4z" />
+                </svg>
+              </SendButton>
+            </AskBoxFoot>
+          </AskBox>
+        ) : null}
       </Rail>
       {questionsOpen && !compact ? (
         <QuestionsSheet
@@ -1038,7 +1055,7 @@ export function SiteBoardView({
           onOpenMap={() => setMapOpen(true)}
           onOpenWork={() => setWorkOpen(true)}
           onAddPage={onAddPage}
-          onAsk={onAsk}
+          onAsk={agents ? onAsk : undefined}
           onClose={() => setFindOpen(false)}
         />
       ) : null}
@@ -1056,10 +1073,10 @@ export function SiteBoardView({
             onSelectPage(page)
             setSide('both')
           }}
-          onPublish={() => {
+          onPublish={output ? () => {
             setChangesOpen(false)
             onPublish()
-          }}
+          } : undefined}
           onClose={() => setChangesOpen(false)}
         />
       ) : null}
@@ -1131,11 +1148,11 @@ export function SiteBoardView({
           promise={promise}
           document={document}
           onClose={() => setPromise(null)}
-          onBuild={() => {
+          onBuild={agents ? () => {
             const chosen = promise
             setPromise(null)
             onBuildPromise(chosen.path, chosen.title, promiseBrief(document, chosen))
-          }}
+          } : undefined}
           onRepoint={to => {
             const chosen = promise
             setPromise(null)

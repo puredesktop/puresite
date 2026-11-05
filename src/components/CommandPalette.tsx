@@ -39,7 +39,8 @@ export function CommandPalette({
   onOpenMap: () => void
   onOpenWork: () => void
   onAddPage: () => void
-  onAsk: (request: string) => void
+  /** Absent where this person has no agents: the palette only finds. */
+  onAsk?: (request: string) => void
   onClose: () => void
 }): React.ReactElement {
   const [typed, setTyped] = useState('')
@@ -107,7 +108,7 @@ export function CommandPalette({
         !query || `${command.label} ${command.detail}`.toLowerCase().includes(query),
     )
     // Anything typed that matches nothing is a request, not a dead end.
-    const asking: Command[] = query
+    const asking: Command[] = query && onAsk
       ? [
           {
             id: 'ask',

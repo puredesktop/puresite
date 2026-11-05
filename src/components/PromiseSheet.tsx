@@ -22,7 +22,8 @@ export function PromiseSheet({
 }: {
   promise: PromisedPage
   document: SiteDocument
-  onBuild: () => void
+  /** Absent where this person has no agents to build it. */
+  onBuild?: () => void
   /** Send the promising links at a page that already exists. */
   onRepoint: (to: string) => void
   /** Keep the words, drop the link: a promise nobody means to keep. */
@@ -105,9 +106,11 @@ export function PromiseSheet({
               <Button type="button" onClick={onClose}>
                 Not now
               </Button>
-              <Primary type="button" onClick={onBuild}>
-                Build this page
-              </Primary>
+              {onBuild ? (
+                <Primary type="button" onClick={onBuild}>
+                  Build this page
+                </Primary>
+              ) : null}
             </>
           )}
         </Foot>
