@@ -63,7 +63,7 @@ const Bar = styled.div`
   height: 36px;
   padding: 0 12px;
   border-bottom: 1px solid var(--pure-chrome-line);
-  background: #ffffff;
+  background: light-dark(#ffffff, #1c1c1c);
   font-family: var(--platform-typography-font-family);
 `
 

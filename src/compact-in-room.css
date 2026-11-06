@@ -1,22 +1,31 @@
+/* Follows the desk's theme: each colour is light-dark(its light value, its dark partner), the dark ones the held greys
+   of docs/held-apps.md. A light theme leaves the colour scheme as it was; a dark one says dark, and parts that asked
+   for light take --held-scheme instead. */
+[data-compact-room]:is([data-platform-theme='dark'] *),
+html[data-held-in-room]:has([data-compact-room])[data-platform-theme='dark'] {
+  color-scheme: dark;
+  --held-scheme: dark;
+}
+
 /* Compact PureSite, in or beside the Executive room (useCompactInRoom). The frame carries data-compact-room only then,
    and the parts below carry their data-compact attributes only then, so with compact off nothing here applies. Chrome
    is hidden, not removed: everything stays mounted, so state and agent tools stay alive. */
 
 /* The page is the whole thing, on white in any theme: a dark theme must not leave pale words on this paper. */
 [data-compact-room] {
-  color-scheme: light;
-  background: #ffffff;
-  color: #1f2328;
-  --platform-colors-bg: #ffffff;
-  --platform-colors-app-viewport: #ffffff;
-  --platform-colors-surface: #ffffff;
-  --platform-colors-elevated: #ffffff;
-  --platform-colors-text: #1f2328;
-  --platform-colors-text-secondary: #5b6169;
-  --pure-chrome-line: #e3e3e3;
-  --pure-chrome-soft: #5b6169;
-  --pure-chrome-muted: #7a8088;
-  --pure-chrome-hover: #f2f2f2;
+  color-scheme: var(--held-scheme, light);
+  background: light-dark(#ffffff, #1c1c1c);
+  color: light-dark(#1f2328, #ededed);
+  --platform-colors-bg: light-dark(#ffffff, #1c1c1c);
+  --platform-colors-app-viewport: light-dark(#ffffff, #1c1c1c);
+  --platform-colors-surface: light-dark(#ffffff, #1c1c1c);
+  --platform-colors-elevated: light-dark(#ffffff, #1c1c1c);
+  --platform-colors-text: light-dark(#1f2328, #ededed);
+  --platform-colors-text-secondary: light-dark(#5b6169, #bdbdbd);
+  --pure-chrome-line: light-dark(#e3e3e3, #3a3a3a);
+  --pure-chrome-soft: light-dark(#5b6169, #bdbdbd);
+  --pure-chrome-muted: light-dark(#7a8088, #969696);
+  --pure-chrome-hover: light-dark(#f2f2f2, #272727);
 }
 
 /* The app header: wordmark, site switcher, share, assistant controls. */
@@ -35,7 +44,7 @@
 }
 [data-compact-room] [data-compact-part='stage'] {
   padding: 0;
-  background: #ffffff;
+  background: light-dark(#ffffff, #1c1c1c);
 }
 [data-compact-room] [data-compact-part='page'] {
   box-shadow: none;
@@ -64,22 +73,22 @@
 /* Held inside an entry of the room: flat on its paper from the first paint, before the hook has answered. The :not()
    is there for its weight: WhiteNeutral paints this body grey with !important. */
 html[data-held-in-room]:not(#_) body {
-  background: #ffffff !important;
-  color: #1f2328;
-  --platform-colors-text: #1f2328;
-  --platform-colors-text-secondary: #5b6169;
+  background: light-dark(#ffffff, #1c1c1c) !important;
+  color: light-dark(#1f2328, #ededed);
+  --platform-colors-text: light-dark(#1f2328, #ededed);
+  --platform-colors-text-secondary: light-dark(#5b6169, #bdbdbd);
 }
 
 /* The held look: one white surface edge to edge, hairlines instead of boxes, 3px corners, 13px and 12px type in sentence case,
    one muted navy. The page itself is the user's site and keeps all of its own styling; only the chrome around it is calmed.
    The :not(#_) gives these the weight to settle the platform's own values. */
 [data-compact-room]:not(#_) {
-  --pure-chrome-line: #dde1e7;
-  --pure-chrome-hover: #f5f6f8;
-  --pure-chrome-soft: #545b66;
-  --pure-chrome-muted: #6b7380;
-  --platform-colors-text: #161d27;
-  --platform-colors-border: #dde1e7;
+  --pure-chrome-line: light-dark(#dde1e7, #3a3a3a);
+  --pure-chrome-hover: light-dark(#f5f6f8, #272727);
+  --pure-chrome-soft: light-dark(#545b66, #bdbdbd);
+  --pure-chrome-muted: light-dark(#6b7380, #969696);
+  --platform-colors-text: light-dark(#161d27, #ededed);
+  --platform-colors-border: light-dark(#dde1e7, #3a3a3a);
 }
 [data-compact-room] [aria-label='Pages']:not(#_) {
   gap: 0;
@@ -92,8 +101,8 @@ html[data-held-in-room]:not(#_) body {
   font-variant-numeric: tabular-nums;
 }
 [data-compact-room] [aria-label='Pages'] button[aria-current='page']:not(#_) {
-  background: #eef0f3;
-  color: #161d27;
+  background: light-dark(#eef0f3, #2c2c2c);
+  color: light-dark(#161d27, #ededed);
   font-weight: 600;
 }
 [data-compact-room] [role='status']:not(#_) {
@@ -104,16 +113,16 @@ html[data-held-in-room]:not(#_) body {
   font-family: var(--platform-typography-font-family, inherit);
   font-size: 13px;
   line-height: 1.5;
-  color: #545b66;
+  color: light-dark(#545b66, #bdbdbd);
 }
 [data-compact-room] .site-compact-empty button:not(#_) {
   min-height: 28px;
   padding: 0 12px;
-  border: 1px solid #1f3a5f;
+  border: 1px solid light-dark(#1f3a5f, #98b8e5);
   border-radius: 3px;
-  background: #1f3a5f;
+  background: light-dark(#1f3a5f, #98b8e5);
   box-shadow: none;
-  color: #ffffff;
+  color: light-dark(#ffffff, #1c1c1c);
   font-family: var(--platform-typography-font-family, inherit);
   font-size: 13px;
   font-weight: 500;
