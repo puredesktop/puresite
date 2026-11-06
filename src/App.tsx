@@ -2682,6 +2682,7 @@ export function App(): React.ReactElement {
             }
             serviceId={serviceId}
             onServiceId={setServiceId}
+            cloud={{ root: documentPath, prepare: () => outputInput().save() }}
             onBuild={() => void onPublishBuild()}
             onSend={() => void onPublishSend()}
             onStop={() => {

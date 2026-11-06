@@ -13,13 +13,14 @@
  * PUT carries the file itself, and every MyTools body is JSON.
  */
 import { isPersonGesture } from '@purescience/platform-ui/release/gesture'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { styled } from 'styled-components'
 import { hasBlockingFinding, type BuildResult, type CheckFinding } from '../lib/buildSite'
 import { APP_ACCENT } from '../constants'
 import type { PublishService } from '../lib/publishServices'
 import type { PublishResult } from '../lib/publish'
 import { verificationBadge, type SiteVerification } from '../lib/siteVerification'
+import { cloudOffered, cloudPreview, cloudPublish, cloudSites, siteFor, type CloudSite } from '../lib/cloudPublish'
 
 export type PublishPhase =
   | 'idle'
@@ -81,6 +82,7 @@ export function PublishDialog({
   onStop,
   onOpenUrl,
   onClose,
+  cloud,
 }: {
   open: boolean
   state: PublishState
@@ -106,6 +108,8 @@ export function PublishDialog({
   /** Open a URL in the real browser, through the shell. */
   onOpenUrl: (url: string) => void
   onClose: () => void
+  /** The package and how to save it first, for publishing to the organisation's site on PureCloud. */
+  cloud?: { root: string | null; prepare: () => Promise<void> }
 }): React.ReactElement | null {
   const errors = useMemo(
     () => findings.filter(finding => finding.severity === 'error'),
@@ -134,6 +138,15 @@ export function PublishDialog({
           <span style={{ flex: 1 }} />
           <Mono>{service?.anonymous ? 'no account needed' : 'static host'}</Mono>
         </Head>
+
+        {cloud && cloudOffered() ? (
+          <CloudSection
+            root={cloud.root}
+            prepare={cloud.prepare}
+            blocked={errors.length > 0 || verification.state === 'failed'}
+            onOpenUrl={onOpenUrl}
+          />
+        ) : null}
 
         <Section>
           <SectionLabel>WHERE</SectionLabel>
@@ -394,6 +407,111 @@ export function PublishDialog({
     </Scrim>
   )
 }
+
+/**
+ * The organisation's own site on PureCloud: the saved package becomes a new version of it, now or at a date, and a
+ * preview link shows the draft first. The site itself is started by an administrator in the Plane.
+ */
+function CloudSection({ root, prepare, blocked, onOpenUrl }: {
+  root: string | null
+  prepare: () => Promise<void>
+  blocked: boolean
+  onOpenUrl: (url: string) => void
+}): React.ReactElement {
+  const [sites, setSites] = useState<CloudSite[] | null>(null)
+  const [siteId, setSiteId] = useState('')
+  const [at, setAt] = useState('')
+  const [busy, setBusy] = useState<'' | 'preview' | 'publish'>('')
+  const [said, setSaid] = useState<{ text: string; url?: string; error?: boolean } | null>(null)
+  useEffect(() => {
+    let live = true
+    cloudSites().then(list => {
+      if (!live) return
+      setSites(list)
+      setSiteId(current => current || (root ? siteFor(list, root)?.id : list[0]?.id) || list[0]?.id || '')
+    }, error => { if (live) { setSites([]); setSaid({ text: error instanceof Error ? error.message : String(error), error: true }) } })
+    return () => { live = false }
+  }, [root])
+  const site = sites?.find(s => s.id === siteId) ?? null
+  const run = async (what: 'preview' | 'publish') => {
+    if (!root || !site) return
+    setBusy(what)
+    setSaid(null)
+    try {
+      await prepare()
+      if (what === 'preview') {
+        const url = await cloudPreview(site.id, root)
+        onOpenUrl(url)
+        setSaid({ text: 'The preview is open in your browser. Its link works for half an hour.', url })
+      } else {
+        const when = at ? new Date(at).toISOString() : undefined
+        const out = await cloudPublish(site.id, root, when)
+        setSaid(out.version.state === 'scheduled'
+          ? { text: `Version ${out.version.n} goes live ${new Date(out.version.goLiveAt ?? 0).toLocaleString()}.`, url: out.url }
+          : { text: `Version ${out.version.n} is live.`, url: out.url })
+        setSites(list => list?.map(s => (s.id === site.id ? { ...s, sourcePath: root.replace(/\/+$/, ''), live: out.version.state === 'live' ? out.version.n : s.live } : s)) ?? list)
+      }
+    } catch (error) {
+      setSaid({ text: error instanceof Error ? error.message : String(error), error: true })
+    } finally {
+      setBusy('')
+    }
+  }
+  return (
+    <Section>
+      <SectionLabel>YOUR SITE ON PURECLOUD</SectionLabel>
+      {sites === null ? <Mono>Finding your organisation’s sites…</Mono> : !sites.length ? (
+        <Clean>Your organisation has no site you can publish yet. An administrator starts one in the Plane, under Public faces.</Clean>
+      ) : (
+        <>
+          <Services>
+            {sites.map(option => (
+              <ServiceButton key={option.id} type="button" $active={option.id === siteId} title={option.address} onClick={() => setSiteId(option.id)}>
+                <ServiceName>{option.title}</ServiceName>
+                <ServiceNote>{option.live ? `Version ${option.live} is live` : 'Not published yet'}</ServiceNote>
+              </ServiceButton>
+            ))}
+          </Services>
+          {site ? <Mono>{site.address}</Mono> : null}
+          <CloudRow>
+            <GhostButton type="button" disabled={!root || !site || !!busy} onClick={() => void run('preview')}>
+              {busy === 'preview' ? 'Saving…' : 'Preview'}
+            </GhostButton>
+            <label>
+              <ServiceNote>Go live at</ServiceNote>{' '}
+              <input type="datetime-local" value={at} onChange={event => setAt(event.currentTarget.value)} aria-label="Go live at (leave empty for now)" />
+            </label>
+            <span style={{ flex: 1 }} />
+            <PrimaryButton
+              type="button"
+              disabled={!root || !site || !!busy || blocked}
+              title={blocked ? 'Fix the findings below first.' : undefined}
+              // Only a person's own press publishes (#1017): a scripted click is ignored.
+              onClick={event => { if (isPersonGesture(event)) void run('publish') }}
+            >
+              {busy === 'publish' ? 'Publishing…' : at ? 'Schedule' : `Publish to ${site?.title ?? 'the site'}`}
+            </PrimaryButton>
+          </CloudRow>
+          {!root ? <Mono>Save the site first: the saved package is what gets published.</Mono> : null}
+          {said ? (
+            <Finding $error={!!said.error}>
+              <strong>{said.text}</strong>
+              {said.url ? <LiveLink href={said.url} onClick={event => { event.preventDefault(); onOpenUrl(said.url!) }}>{said.url}</LiveLink> : null}
+            </Finding>
+          ) : null}
+        </>
+      )}
+    </Section>
+  )
+}
+
+const CloudRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+`
 
 const Scrim = styled.div`
   position: fixed;
