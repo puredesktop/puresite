@@ -138,7 +138,7 @@ const Sheet = styled.section`
   border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
-  border: 1px solid var(--platform-colors-border));
+  border: 1px solid var(--platform-colors-border);
   box-shadow: 0 30px 70px var(--platform-shadow-lg);
   color: var(--platform-colors-text);
 `
@@ -147,7 +147,7 @@ const Head = styled.div`
   display: flex;
   flex-direction: column;
   gap: 5px;
-  border-bottom: 1px solid var(--platform-colors-border));
+  border-bottom: 1px solid var(--platform-colors-border);
 `
 const Kicker = styled.div`
   display: flex;
@@ -207,7 +207,7 @@ const Brief = styled.pre`
   margin: 0;
   padding: 11px 13px;
   border-radius: var(--pure-chrome-radius, 3px);
-  border: 1px solid var(--platform-colors-border));
+  border: 1px solid var(--platform-colors-border);
   background: var(--platform-colors-bg);
   font-family: var(--platform-typography-font-family-mono);
   font-size: 11.5px;
@@ -245,7 +245,7 @@ const Foot = styled.div`
   align-items: center;
   gap: 8px;
   padding: 13px 20px;
-  border-top: 1px solid var(--platform-colors-border));
+  border-top: 1px solid var(--platform-colors-border);
 `
 const Quiet = styled.span`
   font-size: 12.5px;
@@ -256,7 +256,7 @@ const Button = styled.button`
   font-size: 13px;
   padding: 9px 14px;
   border-radius: var(--pure-chrome-radius, 3px);
-  border: 1px solid var(--platform-colors-border));
+  border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
   cursor: pointer;

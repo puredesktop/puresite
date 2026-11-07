@@ -1562,15 +1562,15 @@ const Finding = styled.div<{ $error: boolean }>`
   border-radius: var(--pure-chrome-radius);
   font-size: var(--pure-chrome-ui-size);
   line-height: 1.45;
-  background: ${props =>
-    props.$error
-      ? 'var(--platform-colors-danger-surface, rgb(180 52 14 / 0.1))'
-      : 'var(--pure-chrome-well)'};
-  color: ${props =>
-    props.$error ? 'var(--platform-colors-danger)' : 'var(--pure-chrome-soft)'};
+  /* A notice: white, with a full hairline in its status colour (red has failed, amber needs you), words in ink. */
+  border: 1px solid
+    ${props => (props.$error ? 'var(--p-failed-text, var(--platform-colors-danger))' : 'var(--b-amber, var(--platform-colors-warning))')};
+  background: var(--n-sheet, var(--platform-colors-surface));
+  color: var(--n-soft, var(--pure-chrome-soft));
 
   strong {
     font-weight: 600;
+    color: ${props => (props.$error ? 'var(--p-failed-text, var(--platform-colors-danger))' : 'var(--n-ink, var(--platform-colors-text))')};
   }
 `
 

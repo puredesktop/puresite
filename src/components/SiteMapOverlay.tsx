@@ -438,7 +438,7 @@ const Sheet = styled.section`
   border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
-  border: 1px solid var(--platform-colors-border));
+  border: 1px solid var(--platform-colors-border);
   box-shadow: 0 30px 70px var(--platform-shadow-lg);
   color: var(--platform-colors-text);
 `
@@ -447,7 +447,7 @@ const Head = styled.div`
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--platform-colors-border));
+  border-bottom: 1px solid var(--platform-colors-border);
 `
 const Title = styled.div`
   font-size: 15px;
@@ -574,7 +574,7 @@ const Close = styled.button`
   width: 30px;
   height: 30px;
   border-radius: var(--pure-chrome-radius, 3px);
-  border: 1px solid var(--platform-colors-border));
+  border: 1px solid var(--platform-colors-border);
   background: transparent;
   font-size: 17px;
   line-height: 1;
@@ -787,7 +787,7 @@ const Foot = styled.div`
   align-items: center;
   gap: 10px;
   padding: 11px 18px;
-  border-top: 1px solid var(--platform-colors-border));
+  border-top: 1px solid var(--platform-colors-border);
   font-size: 12.5px;
   color: var(--platform-colors-text-secondary);
   .quiet {
