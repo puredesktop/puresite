@@ -241,7 +241,7 @@ const Sheet = styled.section`
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
+  border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border);
@@ -266,7 +266,7 @@ const Sub = styled.div`
 const Close = styled.button`
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -343,7 +343,7 @@ const Button = styled.button`
   font: inherit;
   font-size: var(--platform-typography-font-size-sm);
   padding: 7px 12px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;

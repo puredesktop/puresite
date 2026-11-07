@@ -40,6 +40,7 @@ import { nameOf, suggestedName, usedOn } from '../lib/assetNames'
 import { draftState, draftSummary, liveUrlFor, stateOf } from '../lib/draftState'
 import { fetchLivePage } from '../bridge/platformBridge'
 import { readElement } from '../lib/pages'
+import { primaryLook, quiet } from '../ui/look'
 import { APP_ACCENT, VIEWPORTS, type ViewportId } from '../constants'
 import { urlPathFor, type SiteDocument, type SitePage } from '../lib/siteDocument'
 import type { AssetRole } from '../lib/assetNotes'
@@ -1369,7 +1370,7 @@ const CalledInput = styled.input.attrs(chrome('field'))`
   font-size: var(--platform-typography-font-size-sm);
   font-weight: var(--platform-typography-font-weight-bold);
   padding: 3px 6px;
-  border-radius: 6px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
@@ -1419,7 +1420,10 @@ const Head = styled.div.attrs(chrome('toolbar'))`
   gap: 8px;
 `
 
-const ToolbarButton = styled.button.attrs(chrome('toolbar-control'))``
+/** Every toolbar action is a raised plain button with its word. */
+const ToolbarButton = styled.button.attrs(chrome('toolbar-control'))`
+  && { ${quiet} height: 26px; padding: 0 9px; font-family: inherit; font-weight: 500; }
+`
 
 /** A hairline between the toolbar's status and its actions. */
 const Sep = styled.span`
@@ -1437,14 +1441,16 @@ const Sizes = styled.div`
 const SizeButton = styled.button<{ $on: boolean }>`
   height: var(--pure-chrome-control-height);
   padding: 0 10px;
-  border: 1px solid
-    ${props => (props.$on ? APP_ACCENT : 'var(--pure-chrome-line)')};
-  border-radius: 7px;
+  border: 1px solid ${props => (props.$on ? 'transparent' : 'var(--pure-chrome-line)')};
+  border-radius: var(--pure-chrome-radius, 3px);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
-  background: ${props => (props.$on ? APP_ACCENT : 'transparent')};
-  color: ${props => (props.$on ? 'var(--pure-chrome-on-accent)' : 'var(--platform-colors-text)')};
+  /* The chosen width is selected, not an action: the shared selected look, words ink. */
+  background: ${props => (props.$on ? 'var(--p-chosen)' : 'transparent')};
+  box-shadow: ${props => (props.$on ? 'var(--p-chosen-edge)' : 'none')};
+  color: var(--platform-colors-text);
+  font-weight: ${props => (props.$on ? 600 : 400)};
 `
 
 /** The grey margin around the design, so its edge and the stage both read. */
@@ -1693,7 +1699,7 @@ const SendButton = styled.button`
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: ${APP_ACCENT};
   color: var(--pure-chrome-on-accent);
   cursor: pointer;
@@ -1723,22 +1729,22 @@ const Meta = styled.div.attrs(chrome('meta'))`
 const Sides = styled.div`
   display: flex;
   gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--pure-chrome-well);
 `
 const SideButton = styled.button`
   font: inherit;
   font-size: var(--platform-typography-font-size-xs);
   height: 24px;
   padding: 0 10px;
-  border-radius: 999px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 0;
   background: none;
   color: var(--pure-chrome-muted);
   cursor: pointer;
+  &:hover { background: var(--n-hover, var(--pure-chrome-hover)); color: var(--platform-colors-text); }
+  /* The open one takes the shared selected look: a plain ground and a hairline in the app's colour, words ink. */
   &[aria-pressed='true'] {
-    background: var(--pure-chrome-paper);
+    background: var(--p-chosen);
+    box-shadow: var(--p-chosen-edge);
     color: var(--platform-colors-text);
     font-weight: var(--platform-typography-font-weight-bold);
   }
@@ -1756,7 +1762,7 @@ const SideLabel = styled.div<{ $live?: boolean }>`
   .dot {
     width: 7px;
     height: 7px;
-    border-radius: 50%;
+    border-radius: 1px;
     background: ${({ $live }) =>
       $live ? 'var(--pure-chrome-muted)' : 'var(--pure-attention-text)'};
   }
@@ -1766,7 +1772,7 @@ const Waiting = styled.div`
   place-items: center;
   padding: 24px;
   text-align: center;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: var(--pure-chrome-well);
   color: var(--pure-chrome-muted);
   font-size: var(--platform-typography-font-size-sm);
@@ -1779,7 +1785,7 @@ const quietStatus = `
   height: var(--pure-chrome-control-height);
   padding: 0 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: transparent;
   font: inherit;
   font-size: var(--pure-chrome-meta-size);
@@ -1793,7 +1799,7 @@ const DraftChip = styled.button.attrs(chrome('meta'))<{ $live: boolean }>`
   .dot {
     width: 7px;
     height: 7px;
-    border-radius: 50%;
+    border-radius: 1px;
     background: ${({ $live }) => ($live ? 'var(--pure-chrome-muted)' : 'var(--pure-attention-text)')};
   }
 `
@@ -1804,7 +1810,7 @@ const BrandChip = styled.button.attrs(chrome('meta'))`
 /** How many pages the writing promises that nobody has built. */
 const PromisedChip = styled.button.attrs(chrome('meta'))`
   && { ${quietStatus} color: var(--platform-colors-text); }
-  &&::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--pure-attention-text); }
+  &&::before { content: ''; width: 7px; height: 7px; border-radius: 1px; background: var(--pure-attention-text); }
 `
 
 const Mono = styled.div.attrs(chrome('meta'))`
@@ -1824,7 +1830,7 @@ const RoleSelect = styled.select<{ $set: boolean }>`
   border: 1px solid
     ${props =>
       props.$set ? 'var(--pure-chrome-accent)' : 'var(--pure-chrome-line)'};
-  border-radius: 7px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: var(--pure-chrome-surface);
   color: ${props =>
     props.$set ? 'var(--pure-chrome-accent)' : 'var(--pure-chrome-soft)'};
@@ -1833,16 +1839,11 @@ const RoleSelect = styled.select<{ $set: boolean }>`
 `
 
 /** A 28px outlined button on the platform radius, wherever it sits. */
+/** A raised plain button with a word: the look every app shares. */
 const GhostButton = styled.button`
-  height: var(--pure-chrome-control-height);
-  padding: 0 12px;
-  border: 1px solid var(--pure-chrome-line);
-  border-radius: 7px;
-  background: var(--pure-chrome-surface);
-  color: var(--platform-colors-text);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
+  ${quiet}
+  font-family: inherit;
+  font-weight: 500;
 `
 
 const ScopeButton = styled(GhostButton)`
@@ -1858,33 +1859,20 @@ const DangerButton = styled(ScopeButton)`
   color: var(--platform-colors-danger);
 `
 
+/** On while picking: pressed in and grey, like any tool that is on. */
 const PickToggle = styled(GhostButton)<{ $on: boolean }>`
-  font-family: var(--platform-typography-font-family-mono);
-  font-size: var(--pure-chrome-label-size);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  border-color: ${props => (props.$on ? APP_ACCENT : 'var(--pure-chrome-line)')};
-  background: ${props => (props.$on ? APP_ACCENT : 'var(--pure-chrome-surface)')};
-  color: ${props => (props.$on ? 'var(--pure-chrome-on-accent)' : 'var(--platform-colors-text)')};
+  && {
+    background: ${props => (props.$on ? 'var(--n-selected)' : 'var(--n-sheet)')};
+    box-shadow: ${props => (props.$on ? 'inset 0 1px 2px rgb(0 0 0 / 0.16)' : '0 1px 1px rgb(0 0 0 / 0.08)')};
+  }
 `
 
 /** The toolbar's one primary control: the accent's third and last appearance. */
 const PrimaryButton = styled.button`
-  height: var(--pure-chrome-control-height);
+  ${quiet}
+  ${primaryLook}
   padding: 0 14px;
-  border: 0;
-  border-radius: 7px;
-  background: ${APP_ACCENT};
-  color: var(--pure-chrome-on-accent);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+  font-family: inherit;
 `
 
 /** Says how honest the preview is, quietly; red only when it failed. */
