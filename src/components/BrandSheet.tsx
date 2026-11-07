@@ -179,7 +179,7 @@ const Sheet = styled.section`
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
+  border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border);
@@ -204,7 +204,7 @@ const Sub = styled.div`
 const Close = styled.button`
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -250,7 +250,7 @@ const Choice = styled.button<{ $active: boolean }>`
   align-items: flex-start;
   gap: 2px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid ${({ $active }) => ($active ? 'var(--site-accent)' : 'var(--platform-colors-border)')};
   background: ${({ $active }) => ($active ? 'var(--site-accent-wash)' : 'transparent')};
   color: inherit;
@@ -269,7 +269,7 @@ const Note = styled.textarea`
   min-height: 64px;
   resize: vertical;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -278,7 +278,7 @@ const Note = styled.textarea`
 `
 const Answer = styled.div<{ $ok: boolean }>`
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   font-size: var(--platform-typography-font-size-sm);
   background: ${({ $ok }) => ($ok ? 'var(--site-accent-wash)' : 'var(--pure-danger-muted)')};
   color: ${({ $ok }) => ($ok ? 'var(--platform-colors-text)' : 'var(--pure-danger-text)')};
@@ -287,7 +287,7 @@ const Button = styled.button`
   font: inherit;
   font-size: var(--platform-typography-font-size-sm);
   padding: 7px 12px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;

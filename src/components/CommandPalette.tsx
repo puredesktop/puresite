@@ -208,7 +208,7 @@ const Sheet = styled.section`
   align-self: flex-start;
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
+  border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border);
@@ -246,7 +246,7 @@ const Result = styled.button<{ $on: boolean }>`
   gap: 10px;
   padding: 9px 10px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: ${({ $on }) => ($on ? 'var(--site-accent-wash)' : 'transparent')};
   color: inherit;
   font: inherit;

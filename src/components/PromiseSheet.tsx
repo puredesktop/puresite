@@ -135,7 +135,7 @@ const Sheet = styled.section`
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
+  border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border));
@@ -193,7 +193,7 @@ const Promise = styled.div`
   flex-direction: column;
   gap: 2px;
   padding: 9px 11px;
-  border-radius: 10px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: var(--platform-colors-bg);
   .text {
     font-size: 13.5px;
@@ -206,7 +206,7 @@ const Promise = styled.div`
 const Brief = styled.pre`
   margin: 0;
   padding: 11px 13px;
-  border-radius: 10px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border));
   background: var(--platform-colors-bg);
   font-family: var(--platform-typography-font-family-mono);
@@ -220,7 +220,7 @@ const Choice = styled.button`
   align-items: baseline;
   gap: 10px;
   padding: 9px 11px;
-  border-radius: 10px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -255,7 +255,7 @@ const Button = styled.button`
   font: inherit;
   font-size: 13px;
   padding: 9px 14px;
-  border-radius: 9px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border));
   background: transparent;
   color: inherit;

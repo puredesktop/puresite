@@ -435,7 +435,7 @@ const Sheet = styled.section`
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
+  border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border));
@@ -464,7 +464,7 @@ const Tick = styled.span<{ $on: boolean }>`
   right: 6px;
   width: 14px;
   height: 14px;
-  border-radius: 5px;
+  border-radius: var(--pure-chrome-radius, 3px);
   cursor: pointer;
   border: 1px solid
     ${({ $on }) => ($on ? 'var(--site-accent)' : 'var(--platform-colors-border-strong)')};
@@ -473,29 +473,30 @@ const Tick = styled.span<{ $on: boolean }>`
 const Chosen = styled.span`
   font-size: var(--platform-typography-font-size-xs);
   padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--site-accent-wash);
+  border-radius: var(--pure-chrome-radius, 3px);
+  background: var(--p-chosen);
+  box-shadow: var(--p-chosen-edge);
   color: var(--platform-colors-text);
 `
 const Lenses = styled.div`
   display: flex;
   gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--pure-chrome-well);
 `
 const Lens = styled.button`
   font: inherit;
   font-size: var(--platform-typography-font-size-xs);
   height: 24px;
   padding: 0 11px;
-  border-radius: 999px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 0;
   background: none;
   color: var(--platform-colors-text-secondary);
   cursor: pointer;
+  &:hover { background: var(--n-hover, var(--pure-chrome-hover)); color: var(--platform-colors-text); }
+  /* The open one takes the shared selected look: a plain ground and a hairline in the app's colour, words ink. */
   &[aria-checked='true'] {
-    background: var(--pure-chrome-paper);
+    background: var(--p-chosen);
+    box-shadow: var(--p-chosen-edge);
     color: var(--platform-colors-text);
     font-weight: var(--platform-typography-font-weight-bold);
   }
@@ -510,7 +511,7 @@ const GoalPick = styled.label`
     font: inherit;
     font-size: var(--platform-typography-font-size-xs);
     padding: 4px 8px;
-    border-radius: 8px;
+    border-radius: var(--pure-chrome-radius, 3px);
     border: 1px solid var(--platform-colors-border);
     background: var(--pure-chrome-well);
     color: var(--platform-colors-text);
@@ -522,7 +523,7 @@ const Find = styled.label`
   gap: 7px;
   height: 30px;
   padding: 0 11px;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid var(--platform-colors-border);
   color: var(--platform-colors-text-secondary);
   input {
@@ -540,14 +541,16 @@ const Toggle = styled.button`
   font-size: var(--platform-typography-font-size-sm);
   height: 30px;
   padding: 0 12px;
-  border-radius: 999px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
   cursor: pointer;
   &[aria-pressed='true'] {
-    background: var(--site-accent-wash);
-    border-color: var(--site-accent);
+    background: var(--p-chosen);
+    border-color: transparent;
+    box-shadow: var(--p-chosen-edge);
+    font-weight: 600;
   }
 `
 const Legend = styled.div`
@@ -570,7 +573,7 @@ const Line = styled.i<{ $promised?: boolean }>`
 const Close = styled.button`
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border));
   background: transparent;
   font-size: 17px;
@@ -613,7 +616,7 @@ const Thumb = styled.span`
   width: ${() => THUMB_WIDTH}px;
   height: 64px;
   overflow: hidden;
-  border-radius: 7px;
+  border-radius: var(--pure-chrome-radius, 3px);
   margin-bottom: 4px;
   pointer-events: none;
   background: var(--platform-colors-bg);
@@ -636,7 +639,7 @@ const Zoom = styled.div`
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border);
   font-size: var(--platform-typography-font-size-xs);
@@ -646,7 +649,7 @@ const Zoom = styled.div`
     min-width: 22px;
     height: 22px;
     padding: 0 6px;
-    border-radius: 999px;
+    border-radius: 2px;
     border: 0;
     background: none;
     color: inherit;
@@ -673,22 +676,24 @@ const Node = styled.button<{
   flex-direction: column;
   gap: 2px;
   padding: ${({ $home }) => ($home ? '10px 14px' : '8px 12px')};
-  border-radius: 11px;
+  border-radius: var(--pure-chrome-radius, 3px);
   text-align: left;
   cursor: pointer;
   font: inherit;
-  background: ${({ $kind }) =>
+  background: ${({ $kind, $here }) =>
     $kind === 'promised'
       ? 'color-mix(in srgb, var(--site-promise-ink) 10%, var(--platform-colors-surface))'
+      : $here
+      ? 'var(--p-chosen)'
       : 'var(--platform-colors-surface)'};
   border: ${({ $kind, $here }) =>
     $kind === 'promised'
       ? '1.5px dashed var(--site-promise-line)'
       : $here
-      ? '1.5px solid var(--site-accent)'
-      : '1px solid var(--platform-colors-border))'};
-  box-shadow: ${({ $here }) =>
-    $here ? '0 0 0 4px var(--site-accent-wash)' : '0 6px 16px color-mix(in srgb, var(--platform-colors-text) 8%, transparent)'};
+      ? '1px solid transparent'
+      : '1px solid var(--platform-colors-border)'};
+  /* The page you are on takes the shared selected look; no card floats on a shadow. */
+  box-shadow: ${({ $here }) => ($here ? 'var(--p-chosen-edge)' : 'none')};
   opacity: ${({ $kind, $dim }) => ($dim ? 0.25 : $kind === 'orphan' ? 0.85 : 1)};
   /* Under a lens, what the lens is about is lit and the rest recedes. */
   outline: ${({ $trouble }) =>
@@ -730,7 +735,7 @@ const Add = styled.button`
   font: inherit;
   font-size: var(--platform-typography-font-size-sm);
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -769,7 +774,7 @@ const Grew = styled.div`
   .dot {
     width: 8px;
     height: 8px;
-    border-radius: 50%;
+    border-radius: 1px;
     background: var(--site-built-line);
   }
   .now {

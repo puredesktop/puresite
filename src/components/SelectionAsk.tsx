@@ -162,7 +162,7 @@ const Bar = styled.div`
   z-index: var(--platform-z-index-zi-app-menus);
   width: min(420px, 92%);
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border);
   box-shadow: var(--platform-shadow-lg);
@@ -190,7 +190,7 @@ const Input = styled.input`
   font: inherit;
   font-size: var(--platform-typography-font-size-sm);
   padding: 8px 10px;
-  border-radius: 9px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: var(--pure-chrome-well);
   color: inherit;
@@ -199,7 +199,7 @@ const Ghost = styled.button`
   font: inherit;
   font-size: var(--platform-typography-font-size-xs);
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -234,7 +234,7 @@ const Choice = styled.button<{ $promise?: boolean }>`
   font: inherit;
   font-size: var(--platform-typography-font-size-sm);
   padding: 7px 9px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   cursor: pointer;
   text-align: left;
   color: inherit;

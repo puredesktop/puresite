@@ -378,7 +378,7 @@ const CalledInput = styled.input`
   font-size: var(--platform-typography-font-size-xs);
   font-weight: var(--platform-typography-font-weight-bold);
   padding: 3px 6px;
-  border-radius: 6px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: var(--pure-chrome-well);
   color: inherit;

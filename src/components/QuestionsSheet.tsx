@@ -192,7 +192,7 @@ const Sheet = styled.section`
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
+  border-radius: var(--pure-chrome-radius, 3px);
   overflow: hidden;
   background: var(--platform-colors-surface);
   border: 1px solid var(--platform-colors-border);
@@ -217,7 +217,7 @@ const Sub = styled.div`
 const Close = styled.button`
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -237,7 +237,7 @@ const Field = styled.label`
     font: inherit;
     font-size: var(--platform-typography-font-size-base);
     padding: 9px 12px;
-    border-radius: 9px;
+    border-radius: var(--pure-chrome-radius, 3px);
     border: 1px solid var(--platform-colors-border);
     background: var(--pure-chrome-well);
     color: inherit;
@@ -257,7 +257,7 @@ const Entry = styled.div<{ $answered: boolean }>`
   flex-direction: column;
   gap: 7px;
   padding: 13px 15px;
-  border-radius: 12px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid
     ${({ $answered }) =>
       $answered ? 'var(--platform-colors-border)' : 'color-mix(in srgb, var(--pure-danger-text) 40%, transparent)'};
@@ -276,7 +276,7 @@ const Mark = styled.span<{ $answered: boolean }>`
   font-family: var(--platform-typography-font-family-mono);
   font-size: var(--platform-typography-font-size-xs);
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: var(--pure-chrome-radius, 3px);
   background: ${({ $answered }) =>
     $answered ? 'var(--site-accent-wash)' : 'color-mix(in srgb, var(--pure-danger-text) 16%, transparent)'};
   color: ${({ $answered }) => ($answered ? 'var(--platform-colors-text)' : 'var(--pure-danger-text)')};
@@ -284,8 +284,6 @@ const Mark = styled.span<{ $answered: boolean }>`
 const Said = styled.p<{ $silent?: boolean }>`
   margin: 0;
   padding-left: 12px;
-  border-left: 2px solid
-    ${({ $silent }) => ($silent ? 'transparent' : 'var(--site-built-line)')};
   font-size: var(--platform-typography-font-size-sm);
   line-height: var(--platform-typography-line-height-base);
   color: ${({ $silent }) =>
@@ -304,7 +302,7 @@ const Ghost = styled.button`
   font: inherit;
   font-size: var(--platform-typography-font-size-xs);
   padding: 6px 11px;
-  border-radius: 8px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid var(--platform-colors-border);
   background: transparent;
   color: inherit;
@@ -328,7 +326,7 @@ const Clash = styled.div`
   flex-direction: column;
   gap: 6px;
   padding: 13px 15px;
-  border-radius: 12px;
+  border-radius: var(--pure-chrome-radius, 3px);
   border: 1px solid color-mix(in srgb, var(--pure-attention-text) 45%, transparent);
   background: var(--pure-attention-muted);
   font-size: var(--platform-typography-font-size-sm);
