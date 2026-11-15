@@ -586,7 +586,7 @@
             "additionalProperties": false
           },
           "requiresApproval": true,
-          "risk": "external"
+          "risk": "write"
         },
         {
           "name": "proposeSamplesToOrganisation",
@@ -627,7 +627,7 @@
             "additionalProperties": false
           },
           "requiresApproval": true,
-          "risk": "external"
+          "risk": "write"
         },
         {
           "name": "makeImage",
@@ -684,7 +684,7 @@
         },
         {
           "name": "buildSite",
-          "risk": "external",
+          "risk": "write",
           "description": "Write build/ — every page, the stylesheet and the assets in use — and return the manifest of files with their sizes. Refused, with the reasons, while the site is not verified: a blocking finding from checkSite, a page that scrolls sideways, or a preview not yet measured (it re-checks first). Publishing is NOT a tool: the person publishes from the Publish dialog, which runs the same check.",
           "inputSchema": {
             "type": "object",
