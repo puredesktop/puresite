@@ -14,9 +14,18 @@ import { EmbeddedVideoPreview, prepareEmbeddedVideoPreview, restoreEmbeddedVideo
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { styled } from 'styled-components'
-import { previewDocument } from '../lib/preview'
+import { deinlineMarkup, livePreviewDocument, previewDocument } from '../lib/preview'
+import { sanitizeEditedOuterHtml } from '../lib/pages'
+import { isSafeHttpUrl } from '../lib/publishServices'
+
+const PICK_NONCE_PLACEHOLDER = '__PURESITE_NONCE__'
 
 export const PICK_SCRIPT = `<script>(function () {
+  var NONCE = '${PICK_NONCE_PLACEHOLDER}';
+  function postToParent(payload) {
+    payload.nonce = NONCE;
+    parent.postMessage(payload, '*');
+  }
   var picking = false;
   // Compact, in the room: a click on words starts typing in them, with no picking first. Off, none of this runs.
   var inPlace = false;
@@ -67,12 +76,12 @@ export const PICK_SCRIPT = `<script>(function () {
       if (editing) commitEdit();
       var to = link.getAttribute('data-site-link');
       if (to) {
-        parent.postMessage({
+        postToParent({
           type: 'puresite:navigate',
           to: to,
           state: link.getAttribute('data-site-state') || 'built',
           text: (link.textContent || '').trim()
-        }, '*');
+        });
       }
       return;
     }
@@ -112,7 +121,10 @@ export const PICK_SCRIPT = `<script>(function () {
     var data = event.data || {};
     if (data.type === 'puresite:commit') {
       if (editing) commitEdit();
-      parent.postMessage({ type: 'puresite:committed' }, '*');
+      postToParent({ type: 'puresite:committed' });
+    }
+    if (data.type === 'puresite:restore-scroll' && typeof data.scrollY === 'number') {
+      window.scrollTo(0, data.scrollY);
     }
     if (data.type === 'puresite:edit-in-place') {
       inPlace = !!data.on;
@@ -140,6 +152,14 @@ export const PICK_SCRIPT = `<script>(function () {
       });
     }
   });
+  var scrollTick = 0;
+  window.addEventListener('scroll', function () {
+    if (scrollTick) return;
+    scrollTick = window.setTimeout(function () {
+      scrollTick = 0;
+      postToParent({ type: 'puresite:scroll', scrollY: window.scrollY || document.documentElement.scrollTop || 0 });
+    }, 80);
+  }, { passive: true });
   var marks = document.createElement('style');
   marks.textContent = '\
     a[data-site-state="built"] { text-decoration-color: rgba(47,125,85,.85); text-underline-offset: 3px; }\
@@ -163,12 +183,12 @@ export const PICK_SCRIPT = `<script>(function () {
       // the app move, rather than navigating this frame off the preview.
       var to = link.getAttribute('data-site-link');
       if (to && !picking) {
-        parent.postMessage({
+        postToParent({
           type: 'puresite:navigate',
           to: to,
           state: link.getAttribute('data-site-state') || 'built',
           text: (link.textContent || '').trim()
-        }, '*');
+        });
         return;
       }
     }
@@ -190,41 +210,48 @@ export const PICK_SCRIPT = `<script>(function () {
     // Where it sits, so the app can put the ask beside what you picked
     // rather than in a panel across the room.
     var box = el.getBoundingClientRect();
-    parent.postMessage({
+    postToParent({
       type: 'puresite:picked',
       path: pathOf(el),
       label: el.tagName.toLowerCase(),
       text: (el.textContent || '').trim().slice(0, 120),
       rect: { x: box.left, y: box.top, width: box.width, height: box.height }
-    }, '*');
+    });
   }, true);
   var editing = null;
   var editingOriginal = '';
   var editingWords = '';
   function serializeEdited(el) {
     var clone = el.cloneNode(true);
+    // Always strip preview-only markers and attributes regardless of mode.
+    clone.classList.remove('__ps-can-edit');
+    clone.classList.remove('__ps-picked');
+    var allNodes = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll('*')));
+    allNodes.forEach(function (item) {
+      item.removeAttribute('data-site-link');
+      item.removeAttribute('data-site-state');
+      item.removeAttribute('contenteditable');
+      if (item.classList) {
+        item.classList.remove('__ps-can-edit');
+        item.classList.remove('__ps-picked');
+        if (!item.classList.length) item.removeAttribute('class');
+      }
+    });
     if (inPlace) {
-      // A sentence can hold links, and what the preview marks on a link must not reach the page that ships.
-      clone.classList.remove('__ps-can-edit');
       // The browser leaves a <br> in an emptied element; empty it properly, since emptied means deleted.
       if (!(clone.textContent || '').trim()) clone.innerHTML = '';
-      var marked = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll('[data-site-link]')));
-      marked.forEach(function (item) {
-        item.removeAttribute('data-site-link');
-        item.removeAttribute('data-site-state');
-      });
     }
-    clone.classList.remove('__ps-picked');
-    if (!clone.classList.length) clone.removeAttribute('class');
-    clone.removeAttribute('contenteditable');
     return clone.outerHTML;
   }
   function startEdit(el) {
     editing = el;
     editingOriginal = serializeEdited(el);
     editingWords = el.innerHTML;
-    // In place it stays words: a paste from Word brings its text, not its formatting.
-    el.setAttribute('contenteditable', inPlace ? 'plaintext-only' : 'true');
+    // Prefer plaintext-only in all modes so pasted rich HTML cannot inject markup; fallback only if unsupported.
+    el.setAttribute('contenteditable', 'plaintext-only');
+    if (el.getAttribute('contenteditable') !== 'plaintext-only') {
+      el.setAttribute('contenteditable', 'true');
+    }
     el.focus();
   }
   function commitEdit() {
@@ -234,7 +261,7 @@ export const PICK_SCRIPT = `<script>(function () {
     el.removeAttribute('contenteditable');
     var markup = serializeEdited(el);
     if (markup !== editingOriginal) {
-      parent.postMessage({ type: 'puresite:edited', path: pathOf(el), outerHtml: markup }, '*');
+      postToParent({ type: 'puresite:edited', path: pathOf(el), outerHtml: markup });
     }
   }
   document.addEventListener('blur', function (event) {
@@ -267,7 +294,7 @@ export const PICK_SCRIPT = `<script>(function () {
     var body = document.body;
     var html = document.documentElement;
     if (!body || !html) return;
-    parent.postMessage({
+    postToParent({
       type: 'puresite:size',
       // Without layout the root still reports the viewport's height; only having no boxes tells.
       laidOut: body.getClientRects().length > 0,
@@ -275,7 +302,7 @@ export const PICK_SCRIPT = `<script>(function () {
         body.scrollHeight, html.scrollHeight,
         body.offsetHeight, html.offsetHeight
       )
-    }, '*');
+    });
   }
   window.addEventListener('load', reportSize);
   window.addEventListener('resize', reportSize);
@@ -289,8 +316,37 @@ export const PICK_SCRIPT = `<script>(function () {
     .__ps-can-edit { cursor: text; outline: 1px dashed rgba(31,111,235,.45); outline-offset: 2px; }\
     [contenteditable="plaintext-only"] { cursor: text; outline: 2px solid rgba(31,111,235,.7); outline-offset: 2px; }';
   document.head.appendChild(style);
-  parent.postMessage({ type: 'puresite:ready' }, '*');
+  postToParent({ type: 'puresite:ready' });
 })();</script>`
+
+function makeNonce(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function injectBeforeBodyClose(html: string, snippet: string): string {
+  let lastIndex = -1
+  const pattern = /<\/body\s*>/gi
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(html)) !== null) lastIndex = match.index
+  return lastIndex === -1
+    ? `${html}\n${snippet}`
+    : `${html.slice(0, lastIndex)}${snippet}\n${html.slice(lastIndex)}`
+}
+
+function applyPreviewColorScheme(html: string, scheme?: 'light' | 'dark'): string {
+  if (!scheme) return html
+  const styleTag =
+    scheme === 'dark'
+      ? `<style data-puresite-scheme="dark">:root { color-scheme: dark; } html { color-scheme: dark; background-color: #111318; color: #e6ebf1; }</style>`
+      : `<style data-puresite-scheme="light">:root { color-scheme: light; } html { color-scheme: light; }</style>`
+  if (/<head\b[^>]*>/i.test(html)) {
+    return html.replace(/<head\b[^>]*>/i, match => `${match}\n<meta name="color-scheme" content="${scheme}">\n${styleTag}`)
+  }
+  return `${styleTag}\n${html}`
+}
 
 const COMMIT_WAIT_MS = 250
 /** How long a page in the room gets to report a laid-out size before the frame is nudged, then replaced. */
@@ -313,6 +369,8 @@ export function PageFrame({
   interactive = false,
   editInPlace = false,
   commitRef,
+  colorScheme,
+  externalBaseUrl,
 }: {
   html: string
   styles: string
@@ -355,34 +413,46 @@ export function PageFrame({
   editInPlace?: boolean
   /** Filled in with: commit whatever is being typed, then do this. Moving away must not outrun the words. */
   commitRef?: React.MutableRefObject<((then: () => void) => void) | null>
+  /** Simulated color scheme for the preview frame. */
+  colorScheme?: 'light' | 'dark'
+  /** When rendering fetched live HTML, resolve its own stylesheets & images against this http(s) URL. */
+  externalBaseUrl?: string
 }): React.ReactElement {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(0)
 
-  const doc = useMemo(() => {
-    const prepared = previewDocument({
-      html,
-      styles,
-      assets,
-      ...(page ? { page } : {}),
-      ...(knownPages ? { knownPages } : {}),
-    })
-    const closing = prepared.lastIndexOf('</body>')
-    return prepareEmbeddedVideoPreview(closing === -1
-      ? `${prepared}\n${PICK_SCRIPT}`
-      : `${prepared.slice(0, closing)}${PICK_SCRIPT}\n${prepared.slice(closing)}`)
-  }, [html, styles, assets, page, knownPages])
+  const { doc, nonce } = useMemo(() => {
+    const nextNonce = makeNonce()
+    const baseHtml =
+      externalBaseUrl && isSafeHttpUrl(externalBaseUrl)
+        ? livePreviewDocument(html, externalBaseUrl)
+        : previewDocument({
+            html,
+            styles,
+            assets,
+            ...(page ? { page } : {}),
+            ...(knownPages ? { knownPages } : {}),
+          })
+    const prepared = applyPreviewColorScheme(baseHtml, colorScheme)
+    const scriptWithNonce = PICK_SCRIPT.replace(PICK_NONCE_PLACEHOLDER, nextNonce)
+    const withScript = injectBeforeBodyClose(prepared, scriptWithNonce)
+    return { doc: prepareEmbeddedVideoPreview(withScript), nonce: nextNonce }
+  }, [html, styles, assets, page, knownPages, colorScheme, externalBaseUrl])
 
   // A reload jumps to the top and drops the next click. So in place, the edit the frame itself made is not loaded back
   // into it; anything else that changes the page is. Coming back to the very text it loaded, after such an edit, must
   // still load: the frame holds the edit, and the same srcDoc would not replace it.
   const seenDoc = useRef(doc)
   const loadedDoc = useRef(doc)
+  const activeNonceRef = useRef(nonce)
   const ownEdit = useRef<string | null>(null)
   // Leaving the frame commits what is being typed, and that can arrive after the move to another page has begun. The
   // old page is in the frame until the new one says it is ready, so until then an edit belongs to the old page.
   const framePage = useRef(page)
   const afterCommit = useRef<(() => void) | null>(null)
+  const scrollByPage = useRef<Record<string, number>>({})
+  const nudgeTimerRef = useRef<number | null>(null)
+  const commitTimerRef = useRef<number | null>(null)
   // A sandboxed frame runs in its own process. If its srcdoc changes just after the first page lands there, Chromium can
   // leave it believing it is display:none: the document is present but never laid out, so the page stays blank. Hiding
   // and showing the element corrects that without a reload; replacing the frame is the last resort.
@@ -392,14 +462,31 @@ export function PageFrame({
     const element = frameRef.current
     if (!element) return
     element.style.display = 'none'
-    window.setTimeout(() => { element.style.display = '' }, 50)
+    if (nudgeTimerRef.current !== null) window.clearTimeout(nudgeTimerRef.current)
+    nudgeTimerRef.current = window.setTimeout(() => {
+      nudgeTimerRef.current = null
+      if (frameRef.current) frameRef.current.style.display = ''
+    }, 50)
   }, [])
+  useEffect(() => {
+    return () => {
+      if (nudgeTimerRef.current !== null) window.clearTimeout(nudgeTimerRef.current)
+      if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current)
+    }
+  }, [])
+
+  // Keep track of valid nonces: the newly loaded doc's nonce, plus the previous nonce while a navigation commit is in flight.
+  const prevNonceRef = useRef<string | null>(null)
   if (doc !== seenDoc.current) {
     seenDoc.current = doc
     if (!(editInPlace && ownEdit.current === (page ?? ''))) {
+      prevNonceRef.current = activeNonceRef.current
+      activeNonceRef.current = nonce
       loadedDoc.current = doc === loadedDoc.current ? `${doc}\n<!-- reloaded -->` : doc
     }
     ownEdit.current = null
+  } else if (!editInPlace) {
+    activeNonceRef.current = nonce
   }
 
   const post = useCallback((message: unknown) => {
@@ -411,28 +498,51 @@ export function PageFrame({
       if (event.source !== frameRef.current?.contentWindow) return
       const data = event.data as {
         type?: string
+        nonce?: unknown
         path?: string
         label?: string
         height?: number
+        scrollY?: number
       }
-      if (data?.type === 'puresite:size') {
+      if (!data || typeof data.type !== 'string' || !data.type.startsWith('puresite:')) return
+      // Verify per-render nonce so arbitrary untrusted messages cannot forge frame events.
+      const validNonce =
+        typeof data.nonce === 'string' &&
+        (data.nonce === activeNonceRef.current || data.nonce === prevNonceRef.current)
+      if (!validNonce) return
+
+      if (data.type === 'puresite:scroll' && typeof data.scrollY === 'number') {
+        const currentPageKey = framePage.current ?? ''
+        scrollByPage.current[currentPageKey] = data.scrollY
+      }
+      if (data.type === 'puresite:size') {
         if ((data as { laidOut?: boolean }).laidOut) laidOut.current = true
         else if (editInPlace) nudgeFrame()
       }
-      if (data?.type === 'puresite:committed') {
+      if (data.type === 'puresite:committed') {
+        if (commitTimerRef.current !== null) {
+          window.clearTimeout(commitTimerRef.current)
+          commitTimerRef.current = null
+        }
         const then = afterCommit.current
         afterCommit.current = null
         then?.()
       }
-      if (data?.type === 'puresite:ready') {
+      if (data.type === 'puresite:ready') {
+        const previousPage = framePage.current
         framePage.current = page
+        prevNonceRef.current = null
+        const savedScroll = scrollByPage.current[page ?? '']
+        if (previousPage === page && savedScroll && savedScroll > 0) {
+          post({ type: 'puresite:restore-scroll', scrollY: savedScroll })
+        }
         setReady(count => count + 1)
       }
-      if (data?.type === 'puresite:navigate' && typeof (data as { to?: unknown }).to === 'string') {
+      if (data.type === 'puresite:navigate' && typeof (data as { to?: unknown }).to === 'string') {
         const move = data as { to: string; state?: string; text?: string }
         onNavigate?.(move.to, move.state === 'promised' ? 'promised' : 'built', move.text ?? '')
       }
-      if (data?.type === 'puresite:picked' && typeof data.path === 'string') {
+      if (data.type === 'puresite:picked' && typeof data.path === 'string') {
         const picked = data as {
           path: string
           label?: string
@@ -445,18 +555,24 @@ export function PageFrame({
         })
       }
       if (
-        data?.type === 'puresite:edited' &&
+        data.type === 'puresite:edited' &&
         typeof data.path === 'string' &&
         typeof (data as { outerHtml?: unknown }).outerHtml === 'string'
       ) {
         const from = framePage.current
-        const shown = onEdit?.(data.path, restoreEmbeddedVideoPreview((data as { outerHtml: string }).outerHtml), from)
+        const restored = restoreEmbeddedVideoPreview((data as { outerHtml: string }).outerHtml)
+        // Deinline known package assets (including data:image/svg+xml) BEFORE sanitizing
+        // so valid assets/logo.svg references survive while forged SVG data URLs are stripped.
+        const deinlined = deinlineMarkup(restored, assets, from ?? page)
+        const sanitized = sanitizeEditedOuterHtml(deinlined)
+        if (!sanitized) return
+        const shown = onEdit?.(data.path, sanitized, from)
         if (editInPlace && shown === true && from === page) ownEdit.current = page ?? ''
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [onPick, onEdit, onNavigate, editInPlace, page, nudgeFrame])
+  }, [onPick, onEdit, onNavigate, editInPlace, page, nudgeFrame, post, assets])
 
   // `ready` is in every dep list: a frame that has just loaded has not seen
   // anything sent before it existed.
@@ -484,13 +600,21 @@ export function PageFrame({
       afterCommit.current = then
       post({ type: 'puresite:commit' })
       // A frame still loading has nothing being typed, and will not answer.
-      window.setTimeout(() => {
+      if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current)
+      commitTimerRef.current = window.setTimeout(() => {
+        commitTimerRef.current = null
         if (afterCommit.current !== then) return
         afterCommit.current = null
         then()
       }, COMMIT_WAIT_MS)
     }
-    return () => { commitRef.current = null }
+    return () => {
+      if (commitTimerRef.current !== null) {
+        window.clearTimeout(commitTimerRef.current)
+        commitTimerRef.current = null
+      }
+      commitRef.current = null
+    }
   }, [commitRef, post])
   useEffect(() => {
     post({ type: 'puresite:edit-in-place', on: editInPlace })

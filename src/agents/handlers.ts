@@ -259,6 +259,12 @@ export function movePageHandler(
 ): AgentToolHandlerResult {
   const from = number(args, 'from')
   const to = number(args, 'to')
+  const count = context.pages.length
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || from >= count || to < 0 || to >= count) {
+    throw new AgentSiteToolError(
+      `from and to must be page indices between 0 and ${Math.max(0, count - 1)}`,
+    )
+  }
   const result = context.movePage(from, to, siteBase(args))
   return { content: formatAgentToolJson({ moved: true, from, to, ...landed(result) }) }
 }
@@ -279,7 +285,10 @@ export function setElementTextHandler(
 ): AgentToolHandlerResult {
   const page = pageOf(context, args)
   const path = text(args, 'path', 'path')
-  const value = typeof args.text === 'string' ? args.text : ''
+  if (typeof args.text !== 'string') {
+    throw new AgentSiteToolError('text is required and must be a string')
+  }
+  const value = args.text
   const result = context.setElementText(page, path, value, pageBase(args, page))
   return { content: formatAgentToolJson({ page, path, text: value, ...landed(result, page) }) }
 }
@@ -292,11 +301,17 @@ export function setElementSrcHandler(
   const path = text(args, 'path', 'path')
   const src = text(args, 'src', 'src')
   const name = src.replace(/^.*assets\//, '')
-  if (!context.material.some(item => item.name === name)) {
+  const asset = context.material.find(item => item.name === name)
+  if (!asset) {
     throw new AgentSiteToolError(
       `no file called ${name} — the site has ${
         context.material.map(item => item.name).join(', ') || 'none'
       }`,
+    )
+  }
+  if (asset.role === 'reference') {
+    throw new AgentSiteToolError(
+      `${name} is marked as reference-only material and cannot be placed on a page`,
     )
   }
   const result = context.setElementSrc(page, path, `assets/${name}`, pageBase(args, page))
@@ -472,11 +487,28 @@ export function setCollectionHandler(
     }
   })
 
-  const asked = (args.access ?? {}) as Partial<Record<string, AccessLevel>>
+  const rawAccess = args.access
+  const access: Collection['access'] = { ...defaultAccess() }
+  if (rawAccess !== undefined) {
+    if (!rawAccess || typeof rawAccess !== 'object' || Array.isArray(rawAccess)) {
+      throw new AgentSiteToolError('access must be an object with read, insert, update, delete')
+    }
+    const allowedKeys = new Set(['read', 'insert', 'update', 'delete'])
+    const allowedValues = new Set<AccessLevel>(['public', 'owner', 'none'])
+    for (const [key, val] of Object.entries(rawAccess as Record<string, unknown>)) {
+      if (!allowedKeys.has(key)) {
+        throw new AgentSiteToolError(`unknown access action "${key}" — use read, insert, update or delete`)
+      }
+      if (typeof val !== 'string' || !allowedValues.has(val as AccessLevel)) {
+        throw new AgentSiteToolError(`access.${key} must be public, owner or none`)
+      }
+      access[key as keyof Collection['access']] = val as AccessLevel
+    }
+  }
   const collection: Collection = {
     name,
     fields,
-    access: { ...defaultAccess(), ...asked } as Collection['access'],
+    access,
     ...(typeof args.rateLimit === 'string' ? { rateLimit: args.rateLimit } : {}),
   }
 
@@ -673,7 +705,14 @@ export async function prepareSiteHandler(
 /** Export drafts for review without invoking publish/build verification. */
 export async function exportPageHandler(context: SiteAgentToolContext, args: Args): Promise<AgentToolHandlerResult> {
   if (args.format !== 'pdf' && args.format !== 'png') throw new AgentSiteToolError('format must be pdf or png')
-  const page = optionalText(args, 'page') ?? context.selectedPage
+  const asked = optionalText(args, 'page')
+  const page = asked
+    ? Object.hasOwn(context.document.pages, asked)
+      ? asked
+      : Object.hasOwn(context.document.pages, normalizePagePath(asked))
+        ? normalizePagePath(asked)
+        : asked
+    : context.selectedPage
   if (!Object.hasOwn(context.document.pages, page)) throw new AgentSiteToolError('Unknown page. Call getSiteContext first.')
   const width = args.width
   if (width !== undefined && (typeof width !== 'number' || !Number.isInteger(width) || width < 320 || width > 3840)) {

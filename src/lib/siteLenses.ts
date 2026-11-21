@@ -178,10 +178,14 @@ export interface ReachNote {
 }
 
 function metaDescription(html: string): string {
-  const match = html.match(
-    /<meta\b[^>]*name=("|')description\1[^>]*content=("|')([^"']*)\2/i,
-  )
-  return match?.[3]?.trim() ?? ''
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0]
+    if (!/\bname=(?:"description"|'description')/i.test(tag)) continue
+    const contentMatch = /\bcontent=(?:"([^"]*)"|'([^']*)')/i.exec(tag)
+    const content = (contentMatch?.[1] ?? contentMatch?.[2] ?? '').trim()
+    if (content) return content
+  }
+  return ''
 }
 
 /** What would keep a page from being found, or from being understood. */
@@ -300,18 +304,40 @@ export function llmsText(document: SiteDocument, graph: SiteLinkGraph): string {
   return `${lines.join('\n')}\n`
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+function cleanBaseUrl(base: string): string {
+  const cleaned = (base || '').replace(/[\r\n\u0000-\u001f]+/g, '').trim()
+  try {
+    const parsed = new URL(cleaned)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return ''
+    return parsed.href.replace(/\/+$/, '')
+  } catch {
+    return ''
+  }
+}
+
 /** Where every page lives, for anything that crawls. */
 export function sitemapXml(document: SiteDocument, base: string): string {
-  const root = base.replace(/\/+$/, '')
+  const root = cleanBaseUrl(base)
   const urls = Object.keys(document.pages)
-    .map(page => `  <url><loc>${root}${urlPathFor(page)}</loc></url>`)
+    .filter(page => page.toLowerCase() !== '404.html')
+    .map(page => `  <url><loc>${escapeXml(`${root}${urlPathFor(page)}`)}</loc></url>`)
     .join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`
 }
 
 /** What crawlers may read, and where the map is. */
 export function robotsText(base: string): string {
-  const root = base.replace(/\/+$/, '')
+  const root = cleanBaseUrl(base)
+  if (!root) return `User-agent: *\nAllow: /\n`
   return `User-agent: *\nAllow: /\nSitemap: ${root}/sitemap.xml\n`
 }
 

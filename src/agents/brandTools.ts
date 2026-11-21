@@ -12,6 +12,7 @@ import type { AgentToolHandlerResult } from '@purescience/platform-ui/bridge/rea
 import { parseDesignSystem, type DesignSystem } from '@purescience/platform-ui/design/brief'
 import { brandsOffered, getBrand, listBrands, proposeBrand, proposeBrandSamples, type BrandDetail } from '../bridge/platformBridge'
 import { brandAssets, brandBlock } from '../lib/brandStyles'
+import { normalizePagePath } from '../lib/pages'
 import { brandArgument, brandLine, sampleImages, siteBrandFrom, type SiteBrand } from '../lib/siteBrand'
 import { analyseLayout, copyNotes, limitsFor } from '../lib/responsiveCheck'
 import { AgentSiteToolError, type SiteAgentToolContext } from './catalog'
@@ -77,6 +78,12 @@ export async function applyBrand(
   base: { baseHash?: string },
   origin: 'agent' | 'manual' = 'agent',
 ) {
+  // Validate baseHash BEFORE copying any files into assets/ so a stale write never mutates disk.
+  if (origin === 'agent' && base.baseHash && context.hash && base.baseHash !== context.hash) {
+    throw new AgentSiteToolError(
+      `the site changed since your read (hash ${base.baseHash} → ${context.hash}) — call getSiteContext (or readStyles) again and redo useBrand`,
+    )
+  }
   const { system, path, detail } = brand
   const assets = brandAssets(system, path)
   for (const asset of assets) await context.brandFiles.copyIn(asset.from, asset.name)
@@ -177,6 +184,59 @@ export async function proposeSiteBrand(context: SiteAgentToolContext, input: { b
   }
 }
 
+async function approvedFileRoots(context: SiteAgentToolContext): Promise<string[]> {
+  const roots: string[] = []
+  const siteRoot = context.documentPath?.replace(/\/+$/, '')
+  const workspaceBrandsDir = siteRoot ? `${siteRoot.replace(/\/[^/]*$/, '')}/Brands` : ''
+  if (siteRoot) roots.push(siteRoot)
+  if (workspaceBrandsDir && !workspaceBrandsDir.startsWith('/Brands')) {
+    roots.push(workspaceBrandsDir)
+  } else if (workspaceBrandsDir === '/Brands') {
+    roots.push('/Brands')
+  }
+
+  const listedBrandDirs: string[] = []
+  if (brandsOffered()) {
+    try {
+      const entries = await listBrands()
+      for (const entry of entries) {
+        if (typeof entry.path === 'string' && entry.path.startsWith('/')) {
+          const dir = entry.path.replace(/\/[^/]*$/, '')
+          if (dir) {
+            listedBrandDirs.push(dir)
+            roots.push(dir)
+          }
+        }
+      }
+    } catch {
+      /* ignore listing failure; site/workspace roots still checked */
+    }
+  }
+
+  // Only accept manifest.brand.path if it matches a listed brand or lives under workspace Brands.
+  const siteBrandPath = context.document.manifest?.brand?.path
+  if (typeof siteBrandPath === 'string' && siteBrandPath.startsWith('/')) {
+    const cleanBrandPath = siteBrandPath.replace(/\/{2,}/g, '/')
+    const brandDir = cleanBrandPath.replace(/\/[^/]*$/, '')
+    const underWorkspaceBrands =
+      workspaceBrandsDir.length > 0 &&
+      (brandDir === workspaceBrandsDir || brandDir.startsWith(`${workspaceBrandsDir}/`))
+    const inListedBrands = listedBrandDirs.some(
+      dir => brandDir === dir || brandDir.startsWith(`${dir}/`),
+    )
+    if (brandDir && (underWorkspaceBrands || inListedBrands)) {
+      roots.push(brandDir)
+    }
+  }
+
+  return [...new Set(roots.map(r => r.replace(/\/+$/, '')).filter(Boolean))]
+}
+
+function isWithinApprovedRoots(absolutePath: string, roots: string[]): boolean {
+  const normalized = absolutePath.replace(/\/{2,}/g, '/')
+  return roots.some(root => normalized.startsWith(`${root}/`))
+}
+
 /**
  * Pages of this site, captured as PNG, or images given by path, proposed as
  * samples of one of the organisation's brands (the site's own when it is one,
@@ -190,6 +250,14 @@ export async function proposeSiteSamples(
   let images = sampleImages(input.images)
   if (Array.isArray(input.images) && input.images.length && !images.length)
     throw new AgentSiteToolError('images must be absolute paths of PNG, JPEG or WebP files')
+  if (images.length) {
+    const roots = await approvedFileRoots(context)
+    if (!roots.length || images.some(img => !isWithinApprovedRoots(img, roots))) {
+      throw new AgentSiteToolError(
+        'sample images must be inside the open site package or an approved brand directory',
+      )
+    }
+  }
   if (!images.length) {
     if (!context.documentPath) throw new AgentSiteToolError('there is no site open — save it first, or pass images')
     const asked = Array.isArray(input.pages) ? input.pages.filter((page): page is string => typeof page === 'string' && !!context.document.pages[page]) : []
@@ -227,6 +295,48 @@ export async function proposeSamplesToOrganisationHandler(context: SiteAgentTool
   return { content: formatAgentToolJson({ ...answer, next: 'Tell the person in plain words: an administrator decides; once approved the images join the brand’s samples.' }) }
 }
 
+const SAFE_IMAGE_EXT = /\.(png|jpe?g|webp|gif|avif)$/i
+
+async function resolveMakeImageReference(
+  context: SiteAgentToolContext,
+  reference: string,
+): Promise<string> {
+  if (!reference || reference.includes('\\') || reference.includes('\0')) {
+    throw new AgentSiteToolError('reference must be an image file in this site or an approved brand folder')
+  }
+  if (!SAFE_IMAGE_EXT.test(reference)) {
+    throw new AgentSiteToolError('reference must be a PNG, JPEG, WebP, GIF or AVIF image')
+  }
+  const siteRoot = context.documentPath!.replace(/\/+$/, '')
+  if (!reference.startsWith('/')) {
+    const rel = reference.replace(/^assets\//, '')
+    const parts = rel.split('/')
+    if (
+      !rel ||
+      rel.startsWith('/') ||
+      /^[a-z]:/i.test(rel) ||
+      parts.some(p => !p || p === '.' || p === '..' || /^\.+$/.test(p))
+    ) {
+      throw new AgentSiteToolError('reference path must stay inside assets/')
+    }
+    return `${siteRoot}/assets/${parts.join('/')}`
+  }
+
+  const normalized = reference.replace(/\/{2,}/g, '/')
+  const parts = normalized.split('/').filter(Boolean)
+  if (parts.some(p => p === '.' || p === '..' || /^\.+$/.test(p))) {
+    throw new AgentSiteToolError('reference path must not contain traversal segments')
+  }
+
+  const allowedRoots = await approvedFileRoots(context)
+  if (!isWithinApprovedRoots(normalized, allowedRoots)) {
+    throw new AgentSiteToolError(
+      'reference image must be inside the open site package or an approved brand directory',
+    )
+  }
+  return normalized
+}
+
 /** Generate a picture for the site with the desktop's image model: the brand's motif, a texture, hero or conceptual art. */
 export async function makeImageHandler(context: SiteAgentToolContext, args: Args): Promise<AgentToolHandlerResult> {
   if (!context.documentPath) throw new AgentSiteToolError('there is no site open — save it first')
@@ -239,7 +349,7 @@ export async function makeImageHandler(context: SiteAgentToolContext, args: Args
   const sourceImages: { base64: string; mimeType: string; name?: string }[] = []
   const reference = str(args.reference)
   if (reference) {
-    const path = reference.startsWith('/') ? reference : `${context.documentPath}/assets/${reference.replace(/^assets\//, '')}`
+    const path = await resolveMakeImageReference(context, reference)
     const read = await context.brandFiles.readBase64(path)
     sourceImages.push({ base64: read.base64, mimeType: read.mimeType || 'image/png', name: path.split('/').pop() })
   }
@@ -271,8 +381,15 @@ export async function makeImageHandler(context: SiteAgentToolContext, args: Args
  * Clean means every width was measured, navigation included, with no findings.
  */
 export async function checkResponsiveHandler(context: SiteAgentToolContext, args: Args): Promise<AgentToolHandlerResult> {
-  const page = str(args.page) ?? context.selectedPage
-  if (!context.document.pages[page]) throw new AgentSiteToolError(`no page called ${page}`)
+  const askedPage = str(args.page)
+  const page = askedPage
+    ? Object.hasOwn(context.document.pages, askedPage)
+      ? askedPage
+      : Object.hasOwn(context.document.pages, normalizePagePath(askedPage))
+        ? normalizePagePath(askedPage)
+        : askedPage
+    : context.selectedPage
+  if (!Object.hasOwn(context.document.pages, page)) throw new AgentSiteToolError(`no page called ${page}`)
   const asked = Array.isArray(args.widths) ? args.widths.map(Number).filter(w => Number.isInteger(w) && w >= 320 && w <= 1920) : []
   const widths = asked.length ? asked.slice(0, 4) : [390, 768]
   const measured = await context.checkResponsive(page, widths)

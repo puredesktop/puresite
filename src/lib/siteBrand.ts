@@ -28,14 +28,21 @@ export interface SiteBrand {
   how: 'house-style' | 'chosen'
 }
 
+export function hasUnsafeAbsolutePath(path: string): boolean {
+  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0')) return true
+  const parts = path.split('/').filter(Boolean)
+  return parts.some(part => part === '.' || part === '..' || /^\.+$/.test(part))
+}
+
 export function parseSiteBrand(raw: unknown): SiteBrand | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const value = raw as Partial<SiteBrand>
   if (typeof value.name !== 'string' || !value.name || typeof value.path !== 'string' || !value.path) return undefined
+  if (hasUnsafeAbsolutePath(value.path)) return undefined
   const source = value.source === 'organisation' || value.source === 'workspace' || value.source === 'own' ? value.source : undefined
   return {
     name: value.name,
-    path: value.path,
+    path: value.path.replace(/\/{2,}/g, '/'),
     ...(typeof value.id === 'string' && value.id ? { id: value.id } : {}),
     ...(source ? { source } : {}),
     ...(typeof value.organisation === 'string' && value.organisation ? { organisation: value.organisation } : {}),
@@ -108,7 +115,10 @@ export function wantsHouseStyle(site: { styles: string; manifest: { brand?: Site
 export function brandArgument(value: unknown): { path: string } | { id: string } | null {
   if (typeof value !== 'string' || !value.trim()) return null
   const text = value.trim()
-  if (text.startsWith('/')) return text.endsWith('.designsystem.json') ? { path: text } : null
+  if (text.startsWith('/')) {
+    if (hasUnsafeAbsolutePath(text)) return null
+    return text.endsWith('.designsystem.json') ? { path: text.replace(/\/{2,}/g, '/') } : null
+  }
   return { id: text }
 }
 
@@ -123,7 +133,8 @@ export function sampleImages(value: unknown): string[] {
   return value
     .filter((item): item is string => typeof item === 'string')
     .map(item => item.trim())
-    .filter(item => item.startsWith('/') && /\.(png|jpe?g|webp)$/i.test(item))
+    .filter(item => !hasUnsafeAbsolutePath(item) && /\.(png|jpe?g|webp)$/i.test(item))
+    .map(item => item.replace(/\/{2,}/g, '/'))
     .slice(0, 12)
 }
 

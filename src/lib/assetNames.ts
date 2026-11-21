@@ -67,6 +67,16 @@ export function fileForName(material: MaterialItem[], called: string): string | 
   )
 }
 
+function assetRefPattern(file: string, flags = ''): RegExp {
+  const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Match relative (../assets/x, ./assets/x, assets/x) and root-relative (/assets/x),
+  // requiring a real URL delimiter after the filename so hero.png does not match hero.png.bak.
+  return new RegExp(
+    `((?:(?:\\.\\./|\\./)*|/)assets/)${escaped}(?=$|["'\\s)?#,])`,
+    flags,
+  )
+}
+
 /**
  * Point every reference to one file at another.
  *
@@ -79,21 +89,26 @@ export function repointAsset(
   from: string,
   to: string,
 ): Record<string, string> {
-  const pattern = new RegExp(
-    `((?:\\.\\./)*assets/)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
-    'g',
-  )
+  const pattern = assetRefPattern(from, 'g')
   const next: Record<string, string> = {}
-  for (const [page, html] of Object.entries(pages)) next[page] = html.replace(pattern, `$1${to}`)
+  for (const [page, html] of Object.entries(pages)) {
+    next[page] = html.replace(pattern, (_whole, prefix: string) => `${prefix}${to}`)
+  }
   return next
 }
 
-/** Which pages use a file, by its name inside `assets/`. */
-export function usedOn(pages: Record<string, string>, file: string): string[] {
-  const pattern = new RegExp(
-    `(?:\\.\\./)*assets/${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
-  )
-  return Object.entries(pages)
+/** Repoint asset references inside a CSS stylesheet (e.g. styles/site.css). */
+export function repointAssetInStyles(styles: string, from: string, to: string): string {
+  const pattern = assetRefPattern(from, 'g')
+  return styles.replace(pattern, (_whole, prefix: string) => `${prefix}${to}`)
+}
+
+/** Which pages (and optionally styles/site.css) use a file, by its name inside `assets/`. */
+export function usedOn(pages: Record<string, string>, file: string, styles?: string): string[] {
+  const pattern = assetRefPattern(file)
+  const hits = Object.entries(pages)
     .filter(([, html]) => pattern.test(html))
     .map(([page]) => page)
+  if (styles && pattern.test(styles)) hits.push('styles/site.css')
+  return hits
 }

@@ -78,20 +78,12 @@ export function mapLayout(graph: SiteLinkGraph, home: string, box: MapBox): Site
     }
   }
 
-  // A page that exists but was only ever reached sideways still needs a home:
-  // hang it off the page that links to it, one ring further out.
-  for (const page of graph.pages) {
-    if (seen.has(page) || orphans.has(page)) continue
-    const inbound = graph.links.find(link => link.target === page)
-    const from = inbound?.fromPage ?? home
-    seen.add(page)
-    parent.set(page, from)
-    depth.set(page, (depth.get(from) ?? 0) + 1)
-    children.set(from, [...(children.get(from) ?? []), page])
-  }
+  // Collect every node reachable from home via BFS; disconnected cycles
+  // (e.g. a <-> b with no link from home) stay unreachable and go into the bottom band.
+  const reachable = new Set<string>(seen)
 
   const cx = box.width / 2
-  const unreachable = countUnreachable(graph, depth, orphans)
+  const unreachable = countUnreachable(graph, reachable, orphans)
   const cy = (box.height - bandHeight(unreachable, box.width)) / 2
   const maxDepth = Math.max(1, ...[...depth.values()])
   const outerX = Math.max(120, box.width / 2 - 150)
@@ -192,11 +184,11 @@ function bandHeight(count: number, width: number): number {
 /** How many pages and promises the rings will not have reached. */
 function countUnreachable(
   graph: SiteLinkGraph,
-  depth: Map<string, number>,
+  reachable: Set<string>,
   orphans: Set<string>,
 ): number {
   const promisedPaths = graph.promised.map(entry => entry.path)
   return [...graph.pages, ...promisedPaths].filter(
-    page => orphans.has(page) || !depth.has(page),
+    page => orphans.has(page) || !reachable.has(page),
   ).length
 }

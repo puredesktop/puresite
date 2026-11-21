@@ -8,7 +8,7 @@ import { DesignBriefImport } from '@purescience/platform-ui/components/common/do
  * board with the starter page. Either way the answers are stored in the
  * package: the wizard is a doorway, not a place.
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { styled } from 'styled-components'
 import { ASSET_ROLES, type MaterialItem } from '../lib/material'
 import { suggestedName } from '../lib/assetNames'
@@ -73,9 +73,41 @@ interface NewSiteWizardProps {
   onSetRole: (name: string, role: AssetRole) => void
   busy: boolean
   busyLabel: string
-  onCreate: () => void
+  error?: string | null
+  onCreate: (briefText?: string) => void
   onSkip: () => void
   onCancel: () => void
+}
+
+function WizardCalledInput({
+  fileName,
+  alias,
+  onCommit,
+}: {
+  fileName: string
+  alias: string
+  onCommit: (value: string) => void
+}): React.ReactElement {
+  const [draft, setDraft] = useState(alias)
+  useEffect(() => { setDraft(alias) }, [alias, fileName])
+  const commit = (): void => {
+    if (draft.trim() !== alias) onCommit(draft)
+  }
+  return (
+    <CalledInput
+      value={draft}
+      placeholder={suggestedName(fileName)}
+      aria-label={`What ${fileName} is called`}
+      onChange={event => setDraft(event.currentTarget.value)}
+      onBlur={commit}
+      onKeyDown={event => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          event.currentTarget.blur()
+        }
+      }}
+    />
+  )
 }
 
 export function NewSiteWizard({
@@ -95,10 +127,20 @@ export function NewSiteWizard({
   onRenameFile,
   busy,
   busyLabel,
+  error,
   onCreate,
   onSkip,
   onCancel,
 }: NewSiteWizardProps): React.ReactElement | null {
+  const [briefDraft, setBriefDraft] = useState(brief)
+  useEffect(() => {
+    setBriefDraft(brief)
+  }, [brief, open])
+
+  const commitBrief = (): void => {
+    if (briefDraft !== brief) onBrief(briefDraft)
+  }
+
   useEffect(() => {
     if (!open) return
     // Escape is the cancel gesture, not the start-empty one: someone reaching
@@ -106,7 +148,10 @@ export function NewSiteWizard({
     // It stays live during drafting, because a request that will not finish
     // is exactly when a way out matters.
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onCancel()
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault()
+        onCancel()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -116,21 +161,32 @@ export function NewSiteWizard({
 
   return (
     <Scrim>
-      <Dialog>
+      <Dialog role="dialog" aria-modal="true" aria-label="New site">
         <Title>New site</Title>
+
+        {error ? <WizardError role="alert">{error}</WizardError> : null}
 
         <Field>
           <Label htmlFor="wizard-brief">What is it for?</Label>
           <Brief
             id="wizard-brief"
-            value={brief}
+            value={briefDraft}
             autoFocus
             placeholder="Who is it for, and what should they do?"
-            onChange={event => onBrief(event.currentTarget.value)}
+            onChange={event => setBriefDraft(event.currentTarget.value)}
+            onBlur={commitBrief}
           />
         </Field>
 
-        <DesignBriefImport value={brief} target="site" disabled={busy} onImport={value => onBrief(value)} />
+        <DesignBriefImport
+          value={briefDraft}
+          target="site"
+          disabled={busy}
+          onImport={value => {
+            setBriefDraft(value)
+            onBrief(value)
+          }}
+        />
         <Field>
           <Label>Files</Label>
           {material.length ? (
@@ -142,11 +198,10 @@ export function NewSiteWizard({
                   ) : (
                     <FileKind>{item.kind}</FileKind>
                   )}
-                  <CalledInput
-                    value={item.alias ?? ''}
-                    placeholder={suggestedName(item.name)}
-                    aria-label={`What ${item.name} is called`}
-                    onChange={event => onRenameFile(item.name, event.currentTarget.value)}
+                  <WizardCalledInput
+                    fileName={item.name}
+                    alias={item.alias ?? ''}
+                    onCommit={value => onRenameFile(item.name, value)}
                   />
                   <FileName title={item.name}>{item.name}</FileName>
                   <RoleSelect
@@ -237,8 +292,11 @@ export function NewSiteWizard({
           <span style={{ flex: 1 }} />
           <PrimaryButton
             type="button"
-            disabled={busy || (!brief.trim() && !material.length)}
-            onClick={onCreate}
+            disabled={busy || (!briefDraft.trim() && !material.length)}
+            onClick={() => {
+              commitBrief()
+              onCreate(briefDraft)
+            }}
           >
             {busy ? busyLabel : 'Create'}
           </PrimaryButton>
@@ -251,10 +309,19 @@ export function NewSiteWizard({
 const Scrim = styled.div`
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--platform-z-index-zi-app-modal, 40);
   display: grid;
   place-items: center;
   background: rgb(12 12 14 / 0.5);
+`
+
+const WizardError = styled.div`
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--platform-colors-danger-surface, rgb(180 52 14 / 0.1));
+  color: var(--platform-colors-danger, #b4340e);
+  border: 1px solid color-mix(in srgb, var(--platform-colors-danger, #b4340e) 35%, transparent);
 `
 
 const Dialog = styled.div`
@@ -315,7 +382,7 @@ const Input = styled.input`
 
 const TwoUp = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 `
 

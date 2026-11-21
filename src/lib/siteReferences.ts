@@ -96,12 +96,36 @@ export function mapSrcset(value: string, replace: (href: string) => string): str
 }
 
 /** Rewrite only real CSS URL tokens, leaving comments and ordinary strings alone. */
-export function mapCssUrls(source: string, replace: (href: string) => string): string {
-  const tokens = /\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s)]+))\s*\)/gi
+export function mapCssUrls(
+  source: string,
+  replace: (href: string) => string,
+  options?: { quote?: '"' | "'" | 'auto' | 'none'; attrQuote?: '"' | "'" },
+): string {
+  const tokens = /\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s)]+))\s*\)/gi
+  const mode = options?.quote ?? '"'
+  const escapeForAttr = (cssToken: string): string => {
+    if (options?.attrQuote === '"') return cssToken.replace(/"/g, '&quot;')
+    if (options?.attrQuote === "'") return cssToken.replace(/'/g, '&#39;')
+    return cssToken
+  }
   return source.replace(tokens, (whole, doubleQuoted, singleQuoted, unquoted) => {
-    const href = doubleQuoted ?? singleQuoted ?? unquoted
-    if (href === undefined) return whole
+    const rawHref = doubleQuoted ?? singleQuoted ?? unquoted
+    if (rawHref === undefined) return whole
+    // Unescape CSS string escapes (\" / \' / \\) before passing to the caller.
+    const href = unquoted !== undefined ? rawHref : rawHref.replace(/\\(.)/g, '$1')
     const mapped = replace(href)
-    return mapped === href ? whole : `url(${mapped})`
+    if (mapped === href) return whole
+    if (mode === 'none') {
+      return escapeForAttr(`url(${mapped})`)
+    }
+    if (mode === 'auto') {
+      if (!/[\s"'()\\]/.test(mapped)) return escapeForAttr(`url(${mapped})`)
+      const q = options?.attrQuote === '"' ? "'" : '"'
+      const escaped = mapped.replace(/\\/g, '\\\\').replace(new RegExp(q, 'g'), `\\${q}`)
+      return escapeForAttr(`url(${q}${escaped}${q})`)
+    }
+    const q = mode
+    const escaped = mapped.replace(/\\/g, '\\\\').replace(new RegExp(q, 'g'), `\\${q}`)
+    return escapeForAttr(`url(${q}${escaped}${q})`)
   })
 }

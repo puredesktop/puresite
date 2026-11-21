@@ -87,12 +87,12 @@ export function QuestionsSheet({
         </Field>
 
         <Body>
-          {clashes.length ? (
-            <Clash>
+          {clashes.map(clash => (
+            <Clash key={clash.about}>
               <strong>
-                {clashes[0]!.facts.length} pages say when it {clashes[0]!.about}s, differently
+                {clash.facts.length} pages say when it {clash.about}s, differently
               </strong>
-              {clashes[0]!.facts.map((fact, index) => (
+              {clash.facts.map((fact, index) => (
                 <span key={`${fact.page}-${index}`} className="said">
                   “{fact.said}” on {urlPathFor(fact.page)}
                 </span>
@@ -101,7 +101,7 @@ export function QuestionsSheet({
                 type="button"
                 onClick={() =>
                   onAsk(
-                    `These pages disagree about when it ${clashes[0]!.about}s: ${clashes[0]!.facts
+                    `These pages disagree about when it ${clash.about}s: ${clash.facts
                       .map(fact => `${fact.page} says ${fact.said}`)
                       .join(', ')}. Ask me which is right, then make them agree.`,
                   )
@@ -110,7 +110,7 @@ export function QuestionsSheet({
                 Make them agree
               </Ghost>
             </Clash>
-          ) : null}
+          ))}
 
           {answers.map(({ question, answer }) => (
             <Entry key={question} $answered={Boolean(answer.page)}>

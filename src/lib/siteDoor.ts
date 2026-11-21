@@ -33,6 +33,7 @@ import { pageHash, pageHashes, siteHash, manifestWithoutPublished } from './site
 import type { SiteDocument, SiteManifest } from './siteDocument'
 import { parseSiteManifest } from './siteDocument'
 import type { Collection } from './siteData'
+import { isSafePagePath } from './pages'
 
 export interface SiteEditRequest {
   /**
@@ -178,17 +179,24 @@ export function parseSiteSnapshot(text: string): SiteSnapshot {
   if (!parsed.pages || typeof parsed.pages !== 'object' || !Object.keys(parsed.pages).length) {
     throw new Error('this snapshot holds no pages')
   }
+  const pageEntries = Object.entries(parsed.pages).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string',
+  )
+  for (const [key] of pageEntries) {
+    if (!isSafePagePath(key)) {
+      throw new Error(`this snapshot contains an unsafe page path: ${key}`)
+    }
+  }
+  if (!pageEntries.length) {
+    throw new Error('this snapshot holds no pages')
+  }
   const manifest = manifestWithoutPublished(
     parseSiteManifest(JSON.stringify(parsed.manifest ?? {})),
   )
   return {
     schemaVersion: SITE_SNAPSHOT_SCHEMA,
     title: typeof parsed.title === 'string' ? parsed.title : manifest.title,
-    pages: Object.fromEntries(
-      Object.entries(parsed.pages).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string',
-      ),
-    ),
+    pages: Object.fromEntries(pageEntries),
     styles: typeof parsed.styles === 'string' ? parsed.styles : '',
     manifest,
     collections: Array.isArray(parsed.collections) ? (parsed.collections as Collection[]) : [],

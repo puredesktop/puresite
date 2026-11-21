@@ -76,17 +76,25 @@ import {
   urlPathFor,
 } from './lib/siteDocument'
 import {
+  add404Page as add404PageTo,
   addPage as addPageTo,
   deleteElement as deleteElementIn,
   deletePage as deletePageFrom,
+  duplicatePage as duplicatePageIn,
   insertElement as insertElementIn,
+  isSafePagePath,
   movePage as movePageIn,
   normalizePagePath,
+  renamePagePath as renamePagePathIn,
+  sanitizeEditedOuterHtml,
   setElementSrc as setElementSrcIn,
   replaceElement as replaceElementIn,
   setElementText as setElementTextIn,
+  updatePageHead as updatePageHeadIn,
+  validateSafeSvgBase64,
   writePage as writePageIn,
   linkElement,
+  type PageHeadMeta,
 } from './lib/pages'
 import {
   deinlineMarkup,
@@ -96,10 +104,10 @@ import {
   referencedAssets,
 } from './lib/preview'
 import { checkSite, type BuildResult } from './lib/buildSite'
-import { repointAsset } from './lib/assetNames'
+import { repointAsset, repointAssetInStyles } from './lib/assetNames'
 import { usePublicationAssets } from './hooks/usePublicationAssets'
 import { linkGraph, repointPromise, unlinkPromise } from './lib/siteLinks'
-import { effectiveSiteAddress, runSiteBuild, sendSiteOutput, type SiteOutputInput } from './lib/siteOutput'
+import { effectiveSiteAddress, prepareCheckedSite, runSiteBuild, sendSiteOutput, type SiteOutputInput } from './lib/siteOutput'
 import {
   checkCollections,
   dataProviderFor,
@@ -107,7 +115,7 @@ import {
   type Collection,
 } from './lib/siteData'
 import { siteDesignGuide, type ReferenceImage } from './lib/draftSite'
-import { listAssetFiles, mapConcurrent, readSitePackage, serializeSitePackage } from './lib/packageIO'
+import { listAssetFiles, mapConcurrent, readSitePackage, serializeSitePackage, validateCollectionsList } from './lib/packageIO'
 import { siteFontFiles } from './lib/siteFoundation'
 import { withBrandBlock } from './lib/brandStyles'
 import {
@@ -317,17 +325,46 @@ export function App(): React.ReactElement {
   // A build writes hundreds of files into the open package; while it runs,
   // and for a moment after, the watcher's echoes are our own footsteps.
   const buildingRef = useRef(false)
+  // Internal package writes (review snapshots, drawer-request.json, site fonts,
+  // asset deletes) must not trigger a full-site reload via onExternalChange.
+  // A trailing quiet window absorbs delayed filesystem watcher echoes.
+  const internalWriteCountRef = useRef(0)
+  const internalWriteUntilRef = useRef(0)
+  const withInternalWrite = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    internalWriteCountRef.current += 1
+    try {
+      return await fn()
+    } finally {
+      internalWriteCountRef.current = Math.max(0, internalWriteCountRef.current - 1)
+      internalWriteUntilRef.current = Math.max(internalWriteUntilRef.current, Date.now() + 1000)
+    }
+  }, [])
 
   const [wizardOpen, setWizardOpen] = useState(false)
   const [wizardBusy, setWizardBusy] = useState<string | null>(null)
+  const [wizardError, setWizardError] = useState<string | null>(null)
   const [describing, setDescribing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const exportBusy = useRef(false)
+  const exportStaticBusyRef = useRef(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   /** The organisation's house style for this person; null with no organisation (or an older shell). */
   const [houseStyle, setHouseStyle] = useState<BrandDetail | null>(null)
   const [brandOpen, setBrandOpen] = useState(false)
+  // In-memory manual undo/redo stack (kept per open site, never touches manifest.published).
+  const undoStackRef = useRef<SiteDocument[]>([])
+  const redoStackRef = useRef<SiteDocument[]>([])
+  const undoRedoPlayingRef = useRef(false)
+  const [undoCounts, setUndoCounts] = useState({ undo: 0, redo: 0 })
+  const syncUndoCounts = useCallback(() => {
+    setUndoCounts({ undo: undoStackRef.current.length, redo: redoStackRef.current.length })
+  }, [])
+  const clearManualUndo = useCallback(() => {
+    undoStackRef.current = []
+    redoStackRef.current = []
+    setUndoCounts({ undo: 0, redo: 0 })
+  }, [])
   /** The agent tools' context, for the app's own brand actions — one code path with the tools. */
   const agentContextRef = useRef<SiteAgentToolContext | null>(null)
   const [publish, setPublish] = useState<PublishState>({
@@ -401,6 +438,7 @@ export function App(): React.ReactElement {
         assetChangeDuringBuildRef.current = path
         return
       }
+      if (internalWriteCountRef.current > 0 || Date.now() < internalWriteUntilRef.current) return
       // Asset bytes can change without a filename/size change, even while text
       // edits are dirty. Refresh comparison without replacing those edits.
       setPublicationAssetRevision(revision => revision + 1)
@@ -428,17 +466,73 @@ export function App(): React.ReactElement {
   const lifecycleRef = useRef(lifecycle)
   lifecycleRef.current = lifecycle
 
+  /** Collaborative live payload: strips manifest.published (including one-time claimToken) so secrets never leak to peers. */
+  const livePayload = useCallback(
+    (doc: SiteDocument, items: MaterialItem[] = materialRef.current): Record<string, unknown> =>
+      JSON.parse(
+        JSON.stringify({
+          ...doc,
+          manifest: {
+            ...manifestWithoutPublished(doc.manifest),
+            assets: notesFrom(items),
+          },
+        }),
+      ) as Record<string, unknown>,
+    [],
+  )
+
   // A site the organisation shares, edited live (useLiveJson): everyone's pages merged page by page; the live copy
   // writes the site's files, so this tab stops saving them itself while live.
   const liveSitePath = lifecycle.doc.path ? `${lifecycle.doc.path}/site.json` : null
   const liveSite = useLiveJson(liveSitePath, {
-    loadSaved: async () => JSON.parse(JSON.stringify(documentRef.current)) as Record<string, unknown>,
+    loadSaved: async () => livePayload(documentRef.current, materialRef.current),
     onRemote: next => {
-      const doc = next as unknown as SiteDocument
+      if (!next || typeof next !== 'object' || Array.isArray(next)) return
+      const candidate = next as Partial<SiteDocument>
+      if (
+        !candidate.pages ||
+        typeof candidate.pages !== 'object' ||
+        Array.isArray(candidate.pages) ||
+        typeof candidate.styles !== 'string'
+      ) {
+        return
+      }
+      const safePages = Object.fromEntries(
+        Object.entries(candidate.pages).filter(
+          (entry): entry is [string, string] =>
+            isSafePagePath(entry[0]) && typeof entry[1] === 'string',
+        ),
+      )
+      if (!Object.keys(safePages).length) return
+      const localPublished = documentRef.current.manifest.published
+      const remoteManifest = parseSiteManifest(JSON.stringify(candidate.manifest ?? {}))
+      const validatedCollections =
+        candidate.collections === undefined
+          ? documentRef.current.collections
+          : validateCollectionsList(candidate.collections) ?? documentRef.current.collections
+      const doc: SiteDocument = {
+        title: typeof candidate.title === 'string' ? candidate.title : remoteManifest.title,
+        pages: safePages,
+        styles: candidate.styles,
+        manifest: {
+          ...manifestWithoutPublished(remoteManifest),
+          ...(localPublished ? { published: localPublished } : {}),
+        },
+        collections: validatedCollections,
+      }
+      clearManualUndo()
       setDocument(doc)
       documentRef.current = doc
       boundDocumentRef.current = doc
       hashRef.current = siteHash(doc)
+      if (Array.isArray(doc.manifest.assets)) {
+        const synced = mergeMaterial(
+          materialRef.current.map(item => ({ name: item.name, bytes: item.bytes })),
+          doc.manifest.assets,
+        )
+        materialRef.current = synced
+        setMaterial(synced)
+      }
     },
     serialize: () => {
       const root = lifecycle.doc.path
@@ -503,6 +597,17 @@ export function App(): React.ReactElement {
       let snapshot: RevisionEntry | null = null
       let warning: string | null = null
       if (outcome.changed) {
+        if (
+          request.origin === 'manual' &&
+          !undoRedoPlayingRef.current &&
+          outcome.content.manifest.published === previous.manifest.published
+        ) {
+          undoStackRef.current = [...undoStackRef.current.slice(-49), previous]
+          redoStackRef.current = []
+          syncUndoCounts()
+        } else if (request.origin !== 'manual') {
+          clearManualUndo()
+        }
         const policy = snapshotPolicy(request.origin, history.armed, true)
         history.armed = policy.armed
         if (policy.snapshot === 'before-revision') {
@@ -529,11 +634,11 @@ export function App(): React.ReactElement {
       boundDocumentRef.current = outcome.content
       hashRef.current = outcome.hash
       // Live: the change goes to everyone, and the live copy writes the site when it is time.
-      if (liveSiteRef.current.status === 'on') liveSiteRef.current.write(JSON.parse(JSON.stringify(outcome.content)) as Record<string, unknown>)
+      if (liveSiteRef.current.status === 'on') liveSiteRef.current.write(livePayload(outcome.content))
       else lifecycleRef.current.markDirty()
       return { ...outcome, snapshot, warning }
     },
-    [history],
+    [clearManualUndo, history, livePayload, syncUndoCounts],
   )
 
   /** A hand edit: a transform of the live document, through the door. */
@@ -544,6 +649,87 @@ export function App(): React.ReactElement {
     ): SiteLanded => landEdit({ next: transform, origin }),
     [landEdit],
   )
+
+  const undoManual = useCallback((): void => {
+    const previous = undoStackRef.current[undoStackRef.current.length - 1]
+    if (!previous) return
+    const current = documentRef.current
+    undoRedoPlayingRef.current = true
+    try {
+      const restored: SiteDocument = {
+        ...previous,
+        manifest: {
+          ...manifestWithoutPublished(previous.manifest),
+          ...(current.manifest.published ? { published: current.manifest.published } : {}),
+        },
+      }
+      const landed = landEdit({ next: restored, origin: 'manual' })
+      if (!landed.ok) {
+        setStatus(landed.message)
+        return
+      }
+      undoStackRef.current.pop()
+      redoStackRef.current = [...redoStackRef.current.slice(-49), current]
+      setStatus('Undid last change.')
+    } finally {
+      undoRedoPlayingRef.current = false
+      syncUndoCounts()
+    }
+  }, [landEdit, syncUndoCounts])
+
+  const redoManual = useCallback((): void => {
+    const nextDoc = redoStackRef.current[redoStackRef.current.length - 1]
+    if (!nextDoc) return
+    const current = documentRef.current
+    undoRedoPlayingRef.current = true
+    try {
+      const restored: SiteDocument = {
+        ...nextDoc,
+        manifest: {
+          ...manifestWithoutPublished(nextDoc.manifest),
+          ...(current.manifest.published ? { published: current.manifest.published } : {}),
+        },
+      }
+      const landed = landEdit({ next: restored, origin: 'manual' })
+      if (!landed.ok) {
+        setStatus(landed.message)
+        return
+      }
+      redoStackRef.current.pop()
+      undoStackRef.current = [...undoStackRef.current.slice(-49), current]
+      setStatus('Redid change.')
+    } finally {
+      undoRedoPlayingRef.current = false
+      syncUndoCounts()
+    }
+  }, [landEdit, syncUndoCounts])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return
+      if (publishOpen || wizardOpen || brandOpen || switcherOpen) return
+      if (window.document.querySelector('[role="dialog"], [data-site-overlay]')) return
+      const target = event.target as HTMLElement | null
+      if (
+        typeof target?.closest === 'function' &&
+        target.closest('input, textarea, select, [contenteditable]')
+      ) {
+        return
+      }
+      const key = event.key.toLowerCase()
+      if (key === 'z' && !event.shiftKey) {
+        if (!undoStackRef.current.length) return
+        event.preventDefault()
+        undoManual()
+      } else if ((key === 'z' && event.shiftKey) || (key === 'y' && !event.metaKey)) {
+        if (!redoStackRef.current.length) return
+        event.preventDefault()
+        redoManual()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [publishOpen, wizardOpen, brandOpen, switcherOpen, undoManual, redoManual])
 
   const restoreRevision = useCallback(
     async (
@@ -699,6 +885,12 @@ export function App(): React.ReactElement {
         if (generation !== openGeneration.current) return
         await history.load(root)
         if (generation !== openGeneration.current) return
+        // Clear cached font-write records for this root so externally deleted fonts are restored on next save/build.
+        for (const key of Array.from(fontsWritten.current)) {
+          if (key.startsWith(`${root}/`)) fontsWritten.current.delete(key)
+        }
+        clearManualUndo()
+        setWizardError(null)
         const manifest = next.manifest
         boundPathRef.current = root
         lifecycleRef.current.adopt(root, { title: next.title })
@@ -757,7 +949,7 @@ export function App(): React.ReactElement {
         if (generation === openGeneration.current) { openingRef.current = false; setOpening(false) }
       }
     },
-    [history, loadMaterial],
+    [clearManualUndo, history, loadMaterial],
   )
   openSitePathRef.current = openSitePath
 
@@ -920,6 +1112,8 @@ export function App(): React.ReactElement {
     boundDocumentRef.current = next
     hashRef.current = siteHash(next)
     history.reset()
+    clearManualUndo()
+    setWizardError(null)
     setUndoOffer(null)
     evidenceRef.current = {}
     setEvidence({})
@@ -950,13 +1144,14 @@ export function App(): React.ReactElement {
       if (generation === openGeneration.current) { openingRef.current = false; setOpening(false) }
     }
     if (generation === openGeneration.current) await startInHouseStyle(generation)
-  }, [history, startInHouseStyle])
+  }, [clearManualUndo, history, startInHouseStyle])
 
   const cancelNewSite = useCallback((): void => {
     // Abandon the run: a draft that comes home to a different number throws
     // its result away rather than landing in whatever is open by then.
     draftRunRef.current += 1
     setWizardBusy(null)
+    setWizardError(null)
     setWizardOpen(false)
   }, [])
 
@@ -972,20 +1167,35 @@ export function App(): React.ReactElement {
       const root = boundPathRef.current
       if (!root) throw new Error('there is no site open')
       const fileName = sourcePath.split(/[\\/]/).pop()?.trim()
-      if (!fileName) throw new Error('the file needs a name')
-      const binary = await readBinaryBase64(sourcePath)
-      try {
-        await createFolder(root, SITE_ASSETS_DIR)
-      } catch {
-        /* already there */
+      if (
+        !fileName ||
+        fileName === '.' ||
+        fileName === '..' ||
+        /^\.+$/.test(fileName) ||
+        fileName.includes('/') ||
+        fileName.includes('\\') ||
+        fileName.includes('\0')
+      ) {
+        throw new Error('the file needs a safe file name')
       }
-      await writeBinaryFile(
-        `${root}/${SITE_ASSETS_DIR}/${fileName}`,
-        binary.base64,
-      )
+      const binary = await readBinaryBase64(sourcePath)
+      if (/\.svg$/i.test(fileName)) {
+        validateSafeSvgBase64(binary.base64)
+      }
+      await withInternalWrite(async () => {
+        try {
+          await createFolder(root, SITE_ASSETS_DIR)
+        } catch {
+          /* already there */
+        }
+        await writeBinaryFile(
+          `${root}/${SITE_ASSETS_DIR}/${fileName}`,
+          binary.base64,
+        )
+      })
       return fileName
     },
-    [],
+    [withInternalWrite],
   )
 
   const addFilesFromDialog = useCallback(async (): Promise<void> => {
@@ -1035,22 +1245,40 @@ export function App(): React.ReactElement {
     }
   }, [addPackageAsset, loadMaterial])
 
-  const setAssetRole = useCallback((name: string, role: AssetRole) => {
-    setMaterial(items =>
-      items.map(item => (item.name === name ? { ...item, role } : item)),
-    )
-    lifecycleRef.current.markDirty()
-  }, [])
+  const updateMaterial = useCallback(
+    (updater: (items: MaterialItem[]) => MaterialItem[]) => {
+      const next = updater(materialRef.current)
+      materialRef.current = next
+      setMaterial(next)
+      if (liveSiteRef.current.status === 'on') {
+        liveSiteRef.current.write(livePayload(documentRef.current, next))
+      } else {
+        lifecycleRef.current.markDirty()
+      }
+    },
+    [livePayload],
+  )
+
+  const setAssetRole = useCallback(
+    (name: string, role: AssetRole) => {
+      updateMaterial(items =>
+        items.map(item => (item.name === name ? { ...item, role } : item)),
+      )
+    },
+    [updateMaterial],
+  )
 
   /** A description typed by hand is the author's, not the model's. */
-  const describeAsset = useCallback((name: string, description: string) => {
-    setMaterial(items =>
-      items.map(item =>
-        item.name === name ? { ...item, description, described: false } : item,
-      ),
-    )
-    lifecycleRef.current.markDirty()
-  }, [])
+  const describeAsset = useCallback(
+    (name: string, description: string) => {
+      updateMaterial(items =>
+        items.map(item =>
+          item.name === name ? { ...item, description, described: false } : item,
+        ),
+      )
+    },
+    [updateMaterial],
+  )
 
   /**
    * Give a file the short name it answers to.
@@ -1058,13 +1286,53 @@ export function App(): React.ReactElement {
    * Only the note changes: pages keep the real path, so nothing that ships
    * moves and a name can be changed as often as it takes to get it right.
    */
-  const renameAsset = useCallback((file: string, called: string) => {
-    const alias = called.trim()
-    setMaterial(items =>
-      items.map(item => (item.name === file ? { ...item, alias } : item)),
-    )
-    lifecycleRef.current.markDirty()
-  }, [])
+  const renameAsset = useCallback(
+    (file: string, called: string) => {
+      const alias = called.trim()
+      updateMaterial(items =>
+        items.map(item => (item.name === file ? { ...item, alias } : item)),
+      )
+    },
+    [updateMaterial],
+  )
+
+  const deleteAssets = useCallback(
+    async (names: string[]): Promise<void> => {
+      const root = boundPathRef.current
+      if (!root || !names.length) return
+      const safeNames = names.filter(
+        name =>
+          name &&
+          !name.startsWith('/') &&
+          !name.includes('..') &&
+          !name.includes('\\') &&
+          !name.includes('\0'),
+      )
+      if (!safeNames.length) return
+      await withInternalWrite(async () => {
+        for (const name of safeNames) {
+          await deleteFileQuietly(`${root}/${SITE_ASSETS_DIR}/${name}`)
+        }
+      })
+      const removeSet = new Set(safeNames)
+      const remainingNotes = notesFrom(materialRef.current).filter(
+        note => !removeSet.has(note.name),
+      )
+      await loadMaterial(root, remainingNotes)
+      setPublicationAssetRevision(revision => revision + 1)
+      if (liveSiteRef.current.status === 'on') {
+        liveSiteRef.current.write(livePayload(documentRef.current, materialRef.current))
+      } else {
+        lifecycleRef.current.markDirty()
+      }
+      setStatus(
+        safeNames.length === 1
+          ? `Deleted assets/${safeNames[0]}.`
+          : `Deleted ${safeNames.length} unused assets.`,
+      )
+    },
+    [livePayload, loadMaterial, withInternalWrite],
+  )
 
   /** Look at every undescribed image and write what it shows. */
   const describeAll = useCallback(async (): Promise<void> => {
@@ -1077,13 +1345,22 @@ export function App(): React.ReactElement {
       item => item.kind === 'image' && !item.description.trim(),
     )
     if (!pending.length) return
-    await prepareDrawerRequest(
-      'describe',
-      'Describe the supplied actual image pixels factually. If pixels cannot be viewed, report that limitation.',
-      [],
-      undefined,
-      true,
-    )
+    setDescribing(true)
+    try {
+      await prepareDrawerRequest(
+        'describe',
+        'Describe the supplied actual image pixels factually. If pixels cannot be viewed, report that limitation.',
+        [],
+        undefined,
+        true,
+      )
+    } catch (describeError) {
+      setStatus(
+        describeError instanceof Error ? describeError.message : String(describeError),
+      )
+    } finally {
+      setDescribing(false)
+    }
   }, [])
 
   const readReferences = useCallback(async (): Promise<ReferenceImage[]> => {
@@ -1113,10 +1390,10 @@ export function App(): React.ReactElement {
     return references
   }, [])
 
-  const draftFromBrief = useCallback(async (): Promise<number> => {
+  const draftFromBrief = useCallback(async (briefOverride?: string): Promise<number> => {
     await prepareDrawerRequest(
       'draft',
-      documentRef.current.manifest.brief,
+      briefOverride !== undefined ? briefOverride : documentRef.current.manifest.brief,
       [],
       undefined,
       true,
@@ -1172,9 +1449,11 @@ export function App(): React.ReactElement {
       try {
         previous = JSON.parse(await readTextFile(`${path}/drawer-request.json`))
       } catch {}
-      await writeTextFile(
-        `${path}/drawer-request.json`,
-        JSON.stringify(request),
+      await withInternalWrite(() =>
+        writeTextFile(
+          `${path}/drawer-request.json`,
+          JSON.stringify(request),
+        ),
       )
       drawerRequestRef.current = request
       if (send) {
@@ -1185,9 +1464,11 @@ export function App(): React.ReactElement {
         }
         await updateCurrentWorkspaceTab({ sessionId })
         request.sessionId = sessionId
-        await writeTextFile(
-          `${path}/drawer-request.json`,
-          JSON.stringify(request),
+        await withInternalWrite(() =>
+          writeTextFile(
+            `${path}/drawer-request.json`,
+            JSON.stringify(request),
+          ),
         )
         await toggleAgentDrawer({ open: true })
         drawerCommitBusy.current = false
@@ -1247,9 +1528,11 @@ export function App(): React.ReactElement {
       if (request.status === 'committed')
         return { persisted: true, alreadyCommitted: true }
       request.status = 'cancelled'
-      await writeTextFile(
-        `${request.path}/drawer-request.json`,
-        JSON.stringify(request),
+      await withInternalWrite(() =>
+        writeTextFile(
+          `${request.path}/drawer-request.json`,
+          JSON.stringify(request),
+        ),
       )
       drawerRequestRef.current = request
       return { cancelled: true, requestId: request.id }
@@ -1357,9 +1640,11 @@ export function App(): React.ReactElement {
           manifest: manifestWithoutPublished(next.manifest),
         }
         request.outputHash = siteHash(next)
-        await writeTextFile(
-          `${request.path}/drawer-request.json`,
-          JSON.stringify(request),
+        await withInternalWrite(() =>
+          writeTextFile(
+            `${request.path}/drawer-request.json`,
+            JSON.stringify(request),
+          ),
         )
         check()
         const landed = landEdit({
@@ -1397,9 +1682,11 @@ export function App(): React.ReactElement {
         throw Error('Stylesheet save not confirmed.')
       request.status = 'committed'
       request.outputHash = hashRef.current
-      await writeTextFile(
-        `${request.path}/drawer-request.json`,
-        JSON.stringify(request),
+      await withInternalWrite(() =>
+        writeTextFile(
+          `${request.path}/drawer-request.json`,
+          JSON.stringify(request),
+        ),
       )
       drawerRequestRef.current = request
       return {
@@ -1604,20 +1891,22 @@ export function App(): React.ReactElement {
   const writeSiteFonts = useCallback(async (root: string): Promise<void> => {
     const wanted = siteFontFiles(documentRef.current.styles).filter(file => !fontsWritten.current.has(`${root}/${file}`))
     if (!wanted.length) return
-    for (const [parent, name] of [[root, SITE_ASSETS_DIR], [`${root}/${SITE_ASSETS_DIR}`, 'fonts']] as const) {
-      try {
-        await createFolder(parent, name)
-      } catch {
-        /* already there */
+    await withInternalWrite(async () => {
+      for (const [parent, name] of [[root, SITE_ASSETS_DIR], [`${root}/${SITE_ASSETS_DIR}`, 'fonts']] as const) {
+        try {
+          await createFolder(parent, name)
+        } catch {
+          /* already there */
+        }
       }
-    }
-    for (const file of wanted) {
-      const url = SITE_FONT_URLS[file]
-      if (!url) continue
-      await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${file}`, url.replace(/^data:[^,]*,/, ''))
-      fontsWritten.current.add(`${root}/${file}`)
-    }
-  }, [])
+      for (const file of wanted) {
+        const url = SITE_FONT_URLS[file]
+        if (!url) continue
+        await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${file}`, url.replace(/^data:[^,]*,/, ''))
+        fontsWritten.current.add(`${root}/${file}`)
+      }
+    })
+  }, [withInternalWrite])
 
   const saveSite = useCallback(async (): Promise<string> => {
     const lifecycle = lifecycleRef.current
@@ -1670,6 +1959,50 @@ export function App(): React.ReactElement {
     }
   }, [outputInput])
 
+  const exportStaticSite = useCallback(async (): Promise<void> => {
+    if (exportStaticBusyRef.current) {
+      setStatus('A static export is already running.')
+      return
+    }
+    const root = boundPathRef.current
+    if (!root) {
+      setStatus('Save the site first before exporting.')
+      return
+    }
+    exportStaticBusyRef.current = true
+    try {
+      const destination = await chooseSiteFolder()
+      if (!destination) return
+      if (boundPathRef.current !== root) {
+        setStatus('The site changed while choosing a folder — export cancelled.')
+        return
+      }
+      const cleanDest = destination.replace(/\/+$/, '')
+      const cleanRoot = root.replace(/\/+$/, '')
+      if (cleanDest === cleanRoot || cleanDest.startsWith(`${cleanRoot}/`)) {
+        setStatus('Choose a folder outside the open .site package.')
+        return
+      }
+      setStatus('Building static site for export…')
+      const prepared = await prepareCheckedSite(outputInput())
+      if (boundPathRef.current !== root) {
+        setStatus('The site changed while building — export cancelled.')
+        return
+      }
+      for (const file of prepared.files) {
+        const folder = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : ''
+        if (folder) await createFolder(cleanDest, folder)
+        if (file.encoding === 'base64') await writeBinaryFile(`${cleanDest}/${file.path}`, file.content)
+        else await writeTextFile(`${cleanDest}/${file.path}`, file.content)
+      }
+      setStatus(`Exported ${prepared.files.length} static site files to ${cleanDest}.`)
+    } catch (exportError) {
+      setStatus(`Static export failed: ${exportError instanceof Error ? exportError.message : String(exportError)}`)
+    } finally {
+      exportStaticBusyRef.current = false
+    }
+  }, [outputInput])
+
   const exportReview = useCallback(async (input: { format: 'pdf' | 'png'; page?: string; width?: number; choosePath?: boolean }) => {
     if (exportBusy.current) throw new Error('An export is already running. Wait for it to finish.')
     exportBusy.current = true
@@ -1686,23 +2019,28 @@ export function App(): React.ReactElement {
         ? await chooseReviewExportPath(filename, input.format)
         : `${root}/reviews/${crypto.randomUUID()}-${filename}`
       if (!output) return null
+      if (boundPathRef.current !== root) {
+        throw new Error('The site changed while choosing the export path.')
+      }
       await lifecycleRef.current.flush({ throwOnError: true })
       await writeSiteFonts(root)
       const html = documentRef.current.pages[page]
       if (!html) throw new Error('This page has no content to export yet.')
-      if (!input.choosePath) await createFolder(root, 'reviews')
-      temporary = `${root}/.review-${crypto.randomUUID()}.html`
-      await writeTextFile(temporary, reviewHtml(html, root, page))
-      setStatus(`Exporting ${page} to ${input.format.toUpperCase()}…`)
-      await renderReviewPage(temporary, output, input.format, width)
-      setStatus(`Exported ${input.format.toUpperCase()} to ${output}`)
-      return { page, format: input.format, outputPath: output, artifactPaths: [output] }
+      return await withInternalWrite(async () => {
+        if (!input.choosePath) await createFolder(root, 'reviews')
+        temporary = `${root}/.review-${crypto.randomUUID()}.html`
+        await writeTextFile(temporary, reviewHtml(html, root, page))
+        setStatus(`Exporting ${page} to ${input.format.toUpperCase()}…`)
+        await renderReviewPage(temporary, output, input.format, width)
+        setStatus(`Exported ${input.format.toUpperCase()} to ${output}`)
+        return { page, format: input.format, outputPath: output, artifactPaths: [output] }
+      })
     } finally {
-      if (temporary) await deleteFileQuietly(temporary)
+      if (temporary) await withInternalWrite(() => deleteFileQuietly(temporary!))
       exportBusy.current = false
       setExporting(false)
     }
-  }, [selectedPage])
+  }, [selectedPage, withInternalWrite, writeSiteFonts])
 
   const agentContext = useMemo(() => {
     /** An agent write through the door; a refusal is the tool's error, verbatim. */
@@ -1921,23 +2259,39 @@ export function App(): React.ReactElement {
         copyIn: async (from: string, name: string) => {
           const root = boundPathRef.current
           if (!root) throw new Error('there is no site open')
-          const read = await readBinaryBase64(from)
-          try {
-            await createFolder(root, SITE_ASSETS_DIR)
-          } catch {
-            /* already there */
+          if (!name || name.startsWith('/') || name.includes('..') || name.includes('\\') || name.includes('\0')) {
+            throw new Error('Asset name must be a safe relative path.')
           }
-          await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${name}`, read.base64)
+          const read = await readBinaryBase64(from)
+          if (/\.svg$/i.test(name) || /\.svg$/i.test(from)) {
+            validateSafeSvgBase64(read.base64)
+          }
+          await withInternalWrite(async () => {
+            try {
+              await createFolder(root, SITE_ASSETS_DIR)
+            } catch {
+              /* already there */
+            }
+            await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${name}`, read.base64)
+          })
         },
         writeAsset: async (name: string, base64: string) => {
           const root = boundPathRef.current
           if (!root) throw new Error('there is no site open')
-          try {
-            await createFolder(root, SITE_ASSETS_DIR)
-          } catch {
-            /* already there */
+          if (!name || name.startsWith('/') || name.includes('..') || name.includes('\\') || name.includes('\0')) {
+            throw new Error('Asset name must be a safe relative path.')
           }
-          await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${name}`, base64)
+          if (/\.svg$/i.test(name)) {
+            validateSafeSvgBase64(base64)
+          }
+          await withInternalWrite(async () => {
+            try {
+              await createFolder(root, SITE_ASSETS_DIR)
+            } catch {
+              /* already there */
+            }
+            await writeBinaryFile(`${root}/${SITE_ASSETS_DIR}/${name}`, base64)
+          })
         },
         refresh: async () => {
           const root = boundPathRef.current
@@ -1984,11 +2338,13 @@ export function App(): React.ReactElement {
     runBuild,
     exportReview,
     selectedPage,
+    pageSelection,
     selection,
     serviceId,
     setAssetRole,
     loadMaterial,
     verification,
+    withInternalWrite,
   ])
 
   usePureSiteAgentTools(ready, agentContext)
@@ -2044,11 +2400,13 @@ export function App(): React.ReactElement {
     const root = boundPathRef.current
     if (!wasHouse || !root) return
     void (async () => {
-      for (const item of materialRef.current.filter(entry => isBrandAsset(entry.name)))
-        await deleteFileQuietly(`${root}/${SITE_ASSETS_DIR}/${item.name}`)
+      await withInternalWrite(async () => {
+        for (const item of materialRef.current.filter(entry => isBrandAsset(entry.name)))
+          await deleteFileQuietly(`${root}/${SITE_ASSETS_DIR}/${item.name}`)
+      })
       await loadMaterial(root, notesFrom(materialRef.current).filter(note => !isBrandAsset(note.name)))
     })()
-  }, [applyDocument, loadMaterial, putOnHouseStyle])
+  }, [applyDocument, loadMaterial, putOnHouseStyle, withInternalWrite])
 
   const siteBrand: SiteBrand | undefined = document.manifest.brand
   const brandPagesLabel = pageSelection.length > 1 ? `${pageSelection.length} ticked pages` : pageSelection.length === 1 ? 'the ticked page' : 'the page on screen'
@@ -2296,13 +2654,41 @@ export function App(): React.ReactElement {
             previews={previews}
             collections={document.collections}
             dataProvider={dataProviderFor(serviceId)}
-            onAddFormForCollection={name =>
-              agentContext.addFormForCollection(
-                { collection: name, page: selectedPage },
-                {},
+            onAddFormForCollection={name => {
+              const collection = documentRef.current.collections.find(item => item.name === name)
+              const provider = dataProviderFor(serviceIdRef.current)
+              if (!collection) {
+                setStatus(`No collection called ${name}.`)
+                return
+              }
+              if (!provider) {
+                setStatus('The chosen host does not store records.')
+                return
+              }
+              const landed = applyDocument(current => {
+                const html = current.pages[selectedPage]
+                if (html === undefined) return current
+                return writePageIn(
+                  current,
+                  selectedPage,
+                  insertElementIn(html, { markup: formSnippetFor(collection, provider) }),
+                )
+              })
+              setStatus(
+                landed.ok
+                  ? `Added ${name} form to ${selectedPage}.`
+                  : landed.message,
               )
-            }
-            onDeleteCollection={name => agentContext.deleteCollection(name, {})}
+            }}
+            onDeleteCollection={name => {
+              const landed = applyDocument(current => ({
+                ...current,
+                collections: current.collections.filter(item => item.name !== name),
+              }))
+              setStatus(
+                landed.ok ? `Removed collection ${name}.` : landed.message,
+              )
+            }}
             selectedPage={selectedPage}
             pageSelection={pageSelection}
             onPageSelection={setPageSelection}
@@ -2344,11 +2730,17 @@ export function App(): React.ReactElement {
               // The element was serialized from the INLINED preview: its images
               // carry the data URLs the preview put there. Back to assets/ paths
               // first, or megabytes of base64 land in pages/*.html and ship.
-              const markup = deinlineMarkup(
-                outerHtml,
-                previewsRef.current,
-                page,
+              const markup = sanitizeEditedOuterHtml(
+                deinlineMarkup(
+                  outerHtml,
+                  previewsRef.current,
+                  page,
+                ),
               )
+              if (!markup) {
+                setStatus('The edited element contained disallowed markup and was not applied.')
+                return false
+              }
               // Emptying an element inline MEANS deleting it — a committed
               // empty block keeps its space and reads as "not deleted".
               const probe = new DOMParser().parseFromString(markup, 'text/html')
@@ -2465,10 +2857,71 @@ export function App(): React.ReactElement {
               setStatus('Kept the words, dropped the link.')
             }}
             onAddPage={() => {
-              const path = normalizePagePath(`page-${pages.length + 1}`)
+              let n = Object.keys(documentRef.current.pages).length + 1
+              let path = normalizePagePath(`page-${n}`)
+              while (!path || documentRef.current.pages[path]) {
+                n += 1
+                path = normalizePagePath(`page-${n}`)
+              }
               applyDocument(current => addPageTo(current, { path }))
               setSelectedPage(path)
             }}
+            onAdd404Page={() => {
+              applyDocument(current => add404PageTo(current))
+              setSelectedPage('404.html')
+              setStatus('Added 404.html starter page.')
+            }}
+            onDuplicatePage={page => {
+              let created = page
+              const landed = applyDocument(current => {
+                const res = duplicatePageIn(current, page)
+                created = res.path
+                return res.document
+              })
+              if (landed.ok && created !== page) {
+                setSelectedPage(created)
+                setStatus(`Duplicated ${page} to ${created}.`)
+              }
+            }}
+            onRenamePage={(oldPath, newPath) => {
+              let renamed = oldPath
+              const landed = applyDocument(current => {
+                const res = renamePagePathIn(current, oldPath, newPath)
+                renamed = res.path
+                return res.document
+              })
+              if (landed.ok && renamed !== oldPath) {
+                setSelectedPage(renamed)
+                setStatus(`Renamed ${oldPath} to ${renamed} and updated links.`)
+              } else {
+                setStatus(`Could not rename ${oldPath} to ${newPath}.`)
+              }
+            }}
+            onUpdatePageHead={(page: string, patch: Partial<PageHeadMeta>) => {
+              const landed = applyDocument(current => {
+                const html = current.pages[page]
+                return html ? writePageIn(current, page, updatePageHeadIn(html, patch)) : current
+              })
+              if (landed.ok && landed.changed) setStatus(`Updated head metadata for ${page}.`)
+            }}
+            onWritePageSource={(page: string, html: string) => {
+              const landed = applyDocument(current => writePageIn(current, page, html))
+              setStatus(landed.ok ? `Applied HTML to ${page}.` : landed.message)
+            }}
+            onWriteStylesSource={(css: string) => {
+              const landed = applyDocument(current => ({
+                ...current,
+                styles: keepBrandBlock(current.styles, css),
+              }))
+              setStatus(landed.ok ? 'Applied styles/site.css.' : landed.message)
+            }}
+            onDeleteAsset={name => void deleteAssets([name])}
+            onCleanUnusedAssets={names => void deleteAssets(names)}
+            canUndo={undoCounts.undo > 0}
+            canRedo={undoCounts.redo > 0}
+            onUndo={undoManual}
+            onRedo={redoManual}
+            modalOpen={publishOpen || wizardOpen || brandOpen || switcherOpen}
             onDeletePage={page =>
               applyDocument(current => deletePageFrom(current, page))
             }
@@ -2515,6 +2968,7 @@ export function App(): React.ReactElement {
               applyDocument(current => ({
                 ...current,
                 pages: repointAsset(current.pages, missing, file),
+                styles: repointAssetInStyles(current.styles, missing, file),
               }))
               setStatus(`Those pages now use ${file}.`)
             }}
@@ -2643,18 +3097,28 @@ export function App(): React.ReactElement {
             onRenameFile={renameAsset}
             busy={wizardBusy !== null}
             busyLabel={wizardBusy ?? ''}
-            onCreate={() => {
+            error={wizardError}
+            onCreate={briefText => {
               void (async () => {
+                setWizardError(null)
                 try {
                   setWizardBusy('Drafting the first page…')
-                  await draftFromBrief()
+                  await draftFromBrief(briefText)
+                  setWizardOpen(false)
+                } catch (draftError) {
+                  const msg =
+                    draftError instanceof Error ? draftError.message : String(draftError)
+                  setWizardError(msg)
+                  setStatus(msg)
                 } finally {
                   setWizardBusy(null)
-                  setWizardOpen(false)
                 }
               })()
             }}
-            onSkip={() => setWizardOpen(false)}
+            onSkip={() => {
+              setWizardError(null)
+              setWizardOpen(false)
+            }}
             onCancel={cancelNewSite}
           />
 
@@ -2670,19 +3134,29 @@ export function App(): React.ReactElement {
             allTools={allTools}
             chosenTools={chosenTools}
             onChooseTool={(id, on) =>
-              applyDocument(current => ({
-                ...current,
-                manifest: {
-                  ...current.manifest,
-                  publishTools: on
-                    ? [...chosenTools.filter(item => item !== id), id]
-                    : chosenTools.filter(item => item !== id),
-                },
-              }))
+              applyDocument(current => {
+                const existing = current.manifest.publishTools ?? []
+                return {
+                  ...current,
+                  manifest: {
+                    ...current.manifest,
+                    publishTools: on
+                      ? [...existing.filter(item => item !== id), id]
+                      : existing.filter(item => item !== id),
+                  },
+                }
+              })
             }
             serviceId={serviceId}
             onServiceId={setServiceId}
-            cloud={{ root: documentPath, prepare: () => outputInput().save() }}
+            cloud={{
+              root: documentPath,
+              prepare: async () => {
+                const input = outputInput()
+                await input.save()
+                await input.verify()
+              },
+            }}
             onBuild={() => void onPublishBuild()}
             onSend={() => void onPublishSend()}
             onStop={() => {
@@ -2694,6 +3168,17 @@ export function App(): React.ReactElement {
                 setStatus('The browser could not be opened.'),
               )
             }
+            onRevealBuild={() => {
+              if (!documentPath) return
+              const path = `${documentPath}/${SITE_BUILD_DIR}`
+              void revealPath(path).catch(() => setStatus(`Build folder: ${path}`))
+            }}
+            onExportStaticSite={() => void exportStaticSite()}
+            has404={Boolean(document.pages['404.html'])}
+            onAdd404Page={() => {
+              applyDocument(current => add404PageTo(current))
+              setStatus('Added 404.html starter page.')
+            }}
             onClose={() => setPublishOpen(false)}
           />
         </>

@@ -261,9 +261,12 @@ export function repointPromise(
     next[page] = html.replace(ANCHOR, (whole, attrs: string, inner: string) => {
       const href = attribute(attrs, 'href')
       if (!href || resolvePagePath(page, href) !== from) return whole
+      const suffixMatch = /([?#].*)$/.exec(href)
+      const suffix = suffixMatch ? suffixMatch[1] : ''
+      const rewritten = `${hrefFrom(page, to)}${suffix}`
       return `<a${attrs.replace(
         new RegExp(`(\\bhref=)("|')${escapeForRegExp(href)}\\2`, 'i'),
-        `$1$2${hrefFrom(page, to)}$2`,
+        (_m, prefix: string, quote: string) => `${prefix}${quote}${rewritten}${quote}`,
       )}>${inner}</a>`
     })
   }
