@@ -19,6 +19,7 @@ export function SelectionAsk({
   label,
   text,
   at,
+  bounds,
   busy,
   agents = true,
   onAsk,
@@ -34,6 +35,8 @@ export function SelectionAsk({
   text: string
   /** Where to sit, in stage coordinates. */
   at: { x: number; y: number; width: number; height: number }
+  /** Stage page bounds to clamp the popover inside. */
+  bounds?: { width: number; height: number }
   busy: boolean
   /** False where this person has no agents: linking still works, asking does not show. */
   agents?: boolean
@@ -77,9 +80,20 @@ export function SelectionAsk({
   const pages = orderedPages(siteDocument)
   const exists = pages.some(entry => entry.path === newPagePath)
 
+  const popoverWidth = Math.min(420, bounds ? Math.max(240, bounds.width - 16) : 420)
+  const popoverEstHeight = linking ? 280 : 120
+  const maxLeft = bounds ? Math.max(8, bounds.width - popoverWidth - 8) : Math.max(8, at.x)
+  const clampedLeft = Math.max(8, Math.min(at.x, maxLeft))
+  const desiredTop = at.y + at.height + 10
+  const maxTop = bounds ? Math.max(8, bounds.height - popoverEstHeight - 8) : desiredTop
+  const clampedTop =
+    bounds && desiredTop > maxTop
+      ? Math.max(8, Math.min(at.y - popoverEstHeight - 10, maxTop))
+      : Math.max(8, desiredTop)
+
   return (
     <Bar
-      style={{ left: at.x, top: at.y + at.height + 10 }}
+      style={{ left: clampedLeft, top: clampedTop }}
       role="dialog"
       aria-label={`Change this ${label}`}
     >

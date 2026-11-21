@@ -73,13 +73,18 @@ export function compositionFor(
       ? args.title.trim()
       : current.title
   const merged = { ...current.pages, ...pages }
+  const mergedKeys = Object.keys(merged)
+  const preservedOrder = [
+    ...current.manifest.pages.filter(page => Object.hasOwn(merged, page)),
+    ...mergedKeys.filter(page => !current.manifest.pages.includes(page)),
+  ]
   return {
     ...current,
     title,
     pages: merged,
     // The brand the site is in stays: a drafted stylesheet that left its block out keeps it.
     styles: keepBrandBlock(current.styles, args.styles),
-    manifest: { ...current.manifest, title, pages: Object.keys(merged) },
+    manifest: { ...current.manifest, title, pages: preservedOrder },
   }
 }
 /** A failed multi-file save can be repaired only when every live file is an old

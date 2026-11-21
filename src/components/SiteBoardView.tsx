@@ -35,11 +35,13 @@ import {
   promiseFor,
   type PromisedPage,
 } from '../lib/siteLinks'
-import { ASSET_ROLES, type MaterialItem } from '../lib/material'
+import { ASSET_ROLES, notesFrom, type MaterialItem } from '../lib/material'
 import { nameOf, suggestedName, usedOn } from '../lib/assetNames'
 import { draftState, draftSummary, liveUrlFor, stateOf } from '../lib/draftState'
 import { fetchLivePage } from '../bridge/platformBridge'
-import { readElement } from '../lib/pages'
+import { isSafeUrlScheme, readElement, readPageHead, type PageHeadMeta } from '../lib/pages'
+import { isSafeHttpUrl } from '../lib/publishServices'
+import { requiredAssetNames } from '../lib/buildSite'
 import { primaryLook, quiet } from '../ui/look'
 import { APP_ACCENT, VIEWPORTS, type ViewportId } from '../constants'
 import { urlPathFor, type SiteDocument, type SitePage } from '../lib/siteDocument'
@@ -88,6 +90,14 @@ export function SiteBoardView({
   onLinkSelection,
   onSetGoal,
   onDeletePage,
+  onDuplicatePage,
+  onRenamePage,
+  onAdd404Page,
+  onUpdatePageHead,
+  onWritePageSource,
+  onWriteStylesSource,
+  onDeleteAsset,
+  onCleanUnusedAssets,
   onMovePage,
   onSetPageTitle,
   onSetElementText,
@@ -107,6 +117,11 @@ export function SiteBoardView({
   exporting,
   brandChip,
   onOpenBrand,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  modalOpen = false,
   compact = false,
 }: {
   document: SiteDocument
@@ -157,6 +172,14 @@ export function SiteBoardView({
   /** Name the page the site is for; nothing is guessed on the person's behalf. */
   onSetGoal: (page: string | null) => void
   onDeletePage: (page: string) => void
+  onDuplicatePage?: (page: string) => void
+  onRenamePage?: (oldPath: string, newPath: string) => void
+  onAdd404Page?: () => void
+  onUpdatePageHead?: (page: string, patch: Partial<PageHeadMeta>) => void
+  onWritePageSource?: (page: string, html: string) => void
+  onWriteStylesSource?: (css: string) => void
+  onDeleteAsset?: (name: string) => void
+  onCleanUnusedAssets?: (names: string[]) => void
   onMovePage: (from: number, to: number) => void
   onSetPageTitle: (page: string, title: string) => void
   onSetElementText: (page: string, path: string, text: string) => void
@@ -182,6 +205,12 @@ export function SiteBoardView({
   brandChip: { label: string; title: string } | null
   /** The brand sheet: which brand, and "Propose to organisation…". */
   onOpenBrand: () => void
+  canUndo?: boolean
+  canRedo?: boolean
+  onUndo?: () => void
+  onRedo?: () => void
+  /** True when an external modal (PublishDialog, BrandSheet, NewSiteWizard, etc.) is open. */
+  modalOpen?: boolean
   /** In or beside the Executive room: the page, its words and its neighbours. Everything else stays mounted, hidden. */
   compact?: boolean
 }): React.ReactElement {
@@ -197,7 +226,37 @@ export function SiteBoardView({
   const [questionsOpen, setQuestionsOpen] = useState(false)
   /** Which of the two sites is on the stage. */
   const [side, setSide] = useState<'draft' | 'live' | 'both'>('draft')
-  const [livePage, setLivePage] = useState<{ page: string; html: string | null } | null>(null)
+  const [livePage, setLivePage] = useState<{
+    page: string
+    status: 'loading' | 'loaded' | 'error'
+    html: string | null
+  } | null>(null)
+  /** Simulated color scheme for the preview frame. */
+  const [colorScheme, setColorScheme] = useState<'light' | 'dark'>('light')
+  /** In-app HTML & CSS source drawer. */
+  const [sourceOpen, setSourceOpen] = useState(false)
+  const [sourceTab, setSourceTab] = useState<'html' | 'css'>('html')
+  const [sourceDraft, setSourceDraft] = useState('')
+  const [sourceDirty, setSourceDirty] = useState(false)
+  const [copiedHtml, setCopiedHtml] = useState(false)
+  /** Collapsible Page head / SEO editor & slug rename in the right rail. */
+  const [seoOpen, setSeoOpen] = useState(false)
+  const [renamingSlug, setRenamingSlug] = useState(false)
+  const [slugDraft, setSlugDraft] = useState('')
+  /** Inline confirmations (never window.confirm). */
+  const [confirmDeletePage, setConfirmDeletePage] = useState(false)
+  const [confirmDeleteCollection, setConfirmDeleteCollection] = useState<string | null>(null)
+  const [confirmDeleteAsset, setConfirmDeleteAsset] = useState<string | null>(null)
+  const [confirmCleanUnused, setConfirmCleanUnused] = useState(false)
+  const [copiedAssetRef, setCopiedAssetRef] = useState<string | null>(null)
+  const copiedAssetTimerRef = useRef<number | null>(null)
+  const copiedHtmlTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    return () => {
+      if (copiedAssetTimerRef.current !== null) window.clearTimeout(copiedAssetTimerRef.current)
+      if (copiedHtmlTimerRef.current !== null) window.clearTimeout(copiedHtmlTimerRef.current)
+    }
+  }, [])
   /** A page a link promises, opened from the content or from the map. */
   const [promise, setPromise] = useState<PromisedPage | null>(null)
   const agents = agentsOffered()
@@ -244,6 +303,56 @@ export function SiteBoardView({
 
   const html = document.pages[selectedPage] ?? ''
   const selectedTitle = pages.find(page => page.path === selectedPage)?.title ?? selectedPage
+  const [titleDraft, setTitleDraft] = useState(selectedTitle)
+  useEffect(() => {
+    setTitleDraft(selectedTitle)
+  }, [selectedPage, selectedTitle])
+  useEffect(() => {
+    setConfirmDeletePage(false)
+    setRenamingSlug(false)
+    setSlugDraft(selectedPage)
+  }, [selectedPage])
+  // Sync source drawer draft carefully so unsaved CSS edits survive page switches
+  // and unsaved edits in either tab are not clobbered by unrelated document updates.
+  const prevSourcePageRef = useRef(selectedPage)
+  useEffect(() => {
+    const pageChanged = prevSourcePageRef.current !== selectedPage
+    prevSourcePageRef.current = selectedPage
+    if (!sourceOpen) return
+    if (sourceTab === 'html') {
+      if (pageChanged || !sourceDirty) {
+        setSourceDraft(html)
+        setSourceDirty(false)
+      }
+    } else if (!sourceDirty) {
+      setSourceDraft(document.styles)
+    }
+  }, [sourceOpen, sourceTab, selectedPage, html, document.styles, sourceDirty])
+
+  const openSourceDrawer = useCallback(
+    (nextOpen: boolean) => {
+      setSourceOpen(nextOpen)
+      if (nextOpen) {
+        setSourceDraft(sourceTab === 'html' ? html : document.styles)
+        setSourceDirty(false)
+      }
+    },
+    [sourceTab, html, document.styles],
+  )
+
+  const switchSourceTab = useCallback(
+    (nextTab: 'html' | 'css') => {
+      setSourceTab(nextTab)
+      setSourceDraft(nextTab === 'html' ? html : document.styles)
+      setSourceDirty(false)
+    },
+    [html, document.styles],
+  )
+
+  const commitTitle = useCallback(() => {
+    if (titleDraft !== selectedTitle) onSetPageTitle(selectedPage, titleDraft)
+  }, [titleDraft, selectedTitle, onSetPageTitle, selectedPage])
+
   const selectedRefs = pageRefs(
     selectedPage,
     selectedTitle,
@@ -261,9 +370,20 @@ export function SiteBoardView({
   }
   /** Where a file is used, said plainly, for the files list. */
   const fileUse = (file: string): string => {
-    const pages_ = usedOn(document.pages, file)
-    return pages_.length ? `on ${pages_.length} page${pages_.length === 1 ? '' : 's'}` : 'not used yet'
+    const pages_ = usedOn(document.pages, file, document.styles)
+    return pages_.length ? `on ${pages_.length} place${pages_.length === 1 ? '' : 's'}` : 'not used yet'
   }
+  const unusedAssetNames = useMemo(() => {
+    const used = new Set(
+      requiredAssetNames({
+        ...document,
+        manifest: { ...document.manifest, assets: notesFrom(material) },
+      }),
+    )
+    return material
+      .filter(item => item.role !== 'reference' && !used.has(item.name) && !item.name.startsWith('fonts/'))
+      .map(item => item.name)
+  }, [document, material])
   // What readers have, against what is here. Offline: the fingerprints of
   // the last publish are enough to say what has moved.
   const draft = useMemo(
@@ -272,14 +392,29 @@ export function SiteBoardView({
   )
   const liveUrl = liveUrlFor(document.manifest.published, selectedPage)
 
+  // Switching to an unpublished site resets comparison mode back to Draft.
+  useEffect(() => {
+    if (!document.manifest.published?.url) setSide('draft')
+  }, [document.manifest.published?.url])
+
   // The live page is fetched only when it is asked for, and again whenever
   // the page on screen changes, so what is beside the draft is this page.
   useEffect(() => {
-    if (side === 'draft' || !liveUrl) return
+    if (side === 'draft') return
+    if (!liveUrl || !isSafeHttpUrl(liveUrl)) {
+      setLivePage({ page: selectedPage, status: 'error', html: null })
+      return
+    }
     let cancelled = false
-    setLivePage({ page: selectedPage, html: null })
-    void fetchLivePage(liveUrl).then(html => {
-      if (!cancelled) setLivePage({ page: selectedPage, html })
+    setLivePage({ page: selectedPage, status: 'loading', html: null })
+    void fetchLivePage(liveUrl).then(fetched => {
+      if (!cancelled) {
+        setLivePage({
+          page: selectedPage,
+          status: fetched !== null ? 'loaded' : 'error',
+          html: fetched,
+        })
+      }
     })
     return () => {
       cancelled = true
@@ -315,26 +450,34 @@ export function SiteBoardView({
   )
   const showData = siteNeedsData({ pages: document.pages, collections })
 
+  const anyModalOpen =
+    modalOpen || mapOpen || workOpen || changesOpen || questionsOpen || promise !== null
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      const inEditable = Boolean(
+        typeof target?.closest === 'function' &&
+          target.closest('input, textarea, select, [contenteditable]'),
+      )
       // ⌘K belongs to the shell, which jumps between files and apps. Inside
       // the site, ⌘P is the one box for its pages, promises and asks.
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
+        if (compact || inEditable || anyModalOpen) return
         event.preventDefault()
-        if (!compact) setFindOpen(open => !open)
+        setFindOpen(open => !open)
         return
       }
       if (compact || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'm') return
       // Typing in the ask box, a page title or a file description is not a
       // request for the map.
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      if (inEditable || modalOpen) return
       event.preventDefault()
       setMapOpen(open => !open)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [compact])
+  }, [compact, anyModalOpen, modalOpen])
 
   // A tab that disappears must not leave the strip showing nothing.
   useEffect(() => {
@@ -448,12 +591,32 @@ export function SiteBoardView({
                   >
                     Add a form here
                   </ScopeButton>
-                  <DangerButton
-                    type="button"
-                    onClick={() => onDeleteCollection(collection.name)}
-                  >
-                    Remove
-                  </DangerButton>
+                  {confirmDeleteCollection === collection.name ? (
+                    <>
+                      <DangerButton
+                        type="button"
+                        onClick={() => {
+                          setConfirmDeleteCollection(null)
+                          onDeleteCollection(collection.name)
+                        }}
+                      >
+                        Confirm remove
+                      </DangerButton>
+                      <ScopeButton
+                        type="button"
+                        onClick={() => setConfirmDeleteCollection(null)}
+                      >
+                        Cancel
+                      </ScopeButton>
+                    </>
+                  ) : (
+                    <DangerButton
+                      type="button"
+                      onClick={() => setConfirmDeleteCollection(collection.name)}
+                    >
+                      Remove
+                    </DangerButton>
+                  )}
                 </Scope>
               </DataCard>
             ))}
@@ -482,6 +645,28 @@ export function SiteBoardView({
                     {describing ? 'Looking…' : 'Describe them for me'}
                   </GhostButton>
                 ) : null}
+                {onCleanUnusedAssets && unusedAssetNames.length > 0 ? (
+                  confirmCleanUnused ? (
+                    <Scope>
+                      <DangerButton
+                        type="button"
+                        onClick={() => {
+                          setConfirmCleanUnused(false)
+                          onCleanUnusedAssets(unusedAssetNames)
+                        }}
+                      >
+                        Delete {unusedAssetNames.length} unused
+                      </DangerButton>
+                      <ScopeButton type="button" onClick={() => setConfirmCleanUnused(false)}>
+                        Cancel
+                      </ScopeButton>
+                    </Scope>
+                  ) : (
+                    <GhostButton type="button" onClick={() => setConfirmCleanUnused(true)}>
+                      Clean unused assets ({unusedAssetNames.length})
+                    </GhostButton>
+                  )
+                ) : null}
                 {material.map(item => (
                   <FileRow key={item.name} {...assetRefs(item.name, nameOf(item))}>
                     {previews[item.name] ? (
@@ -491,11 +676,10 @@ export function SiteBoardView({
                     )}
                     <FileBody>
                       <CalledRow>
-                        <CalledInput
-                          value={item.alias ?? ''}
-                          placeholder={suggestedName(item.name)}
-                          aria-label={`What ${item.name} is called`}
-                          onChange={event => onRenameFile(item.name, event.currentTarget.value)}
+                        <LocalCalledInput
+                          fileName={item.name}
+                          alias={item.alias ?? ''}
+                          onCommit={value => onRenameFile(item.name, value)}
                         />
                         <FileUse>{fileUse(item.name)}</FileUse>
                       </CalledRow>
@@ -522,6 +706,54 @@ export function SiteBoardView({
                           </option>
                         ))}
                       </RoleSelect>
+                      <Scope>
+                        <ScopeButton
+                          type="button"
+                          title={`Copy assets/${item.name}`}
+                          onClick={() => {
+                            const refText = `assets/${item.name}`
+                            void navigator.clipboard?.writeText(refText).catch(() => {})
+                            setCopiedAssetRef(item.name)
+                            if (copiedAssetTimerRef.current !== null) {
+                              window.clearTimeout(copiedAssetTimerRef.current)
+                            }
+                            copiedAssetTimerRef.current = window.setTimeout(() => {
+                              copiedAssetTimerRef.current = null
+                              setCopiedAssetRef(current => (current === item.name ? null : current))
+                            }, 1600)
+                          }}
+                        >
+                          {copiedAssetRef === item.name ? 'Copied' : 'Copy ref'}
+                        </ScopeButton>
+                        {onDeleteAsset ? (
+                          confirmDeleteAsset === item.name ? (
+                            <>
+                              <DangerButton
+                                type="button"
+                                onClick={() => {
+                                  setConfirmDeleteAsset(null)
+                                  onDeleteAsset(item.name)
+                                }}
+                              >
+                                Confirm
+                              </DangerButton>
+                              <ScopeButton
+                                type="button"
+                                onClick={() => setConfirmDeleteAsset(null)}
+                              >
+                                Cancel
+                              </ScopeButton>
+                            </>
+                          ) : (
+                            <DangerButton
+                              type="button"
+                              onClick={() => setConfirmDeleteAsset(item.name)}
+                            >
+                              Delete
+                            </DangerButton>
+                          )
+                        ) : null}
+                      </Scope>
                     </FileBody>
                   </FileRow>
                 ))}
@@ -650,7 +882,17 @@ export function SiteBoardView({
           {output ? (
             <>
               <Sep aria-hidden />
-              <ToolbarButton type="button" onClick={onOpenHtml}>
+              {onWritePageSource || onWriteStylesSource ? (
+                <ToolbarButton
+                  type="button"
+                  data-active={sourceOpen ? '' : undefined}
+                  title="Edit the current page HTML and shared stylesheet directly"
+                  onClick={() => openSourceDrawer(!sourceOpen)}
+                >
+                  Source
+                </ToolbarButton>
+              ) : null}
+              <ToolbarButton type="button" title="Reveal page HTML file in file manager" onClick={onOpenHtml}>
                 HTML
               </ToolbarButton>
               <ToolbarButton type="button" onClick={onOpenInBrowser}>
@@ -671,6 +913,143 @@ export function SiteBoardView({
 
         <Stage ref={stageRef} {...part('stage')}>
           {/* The viewport fills the stage; the page scrolls inside the iframe. */}
+          {!compact && side === 'live' ? (
+            <CompareColumn>
+              <SideLabel $live>
+                <span className="dot" />
+                Live · {urlPathFor(selectedPage)}
+              </SideLabel>
+              <StagePage style={{ width: frame.width * zoom }}>
+                {livePage && livePage.page === selectedPage && livePage.status === 'loaded' && livePage.html !== null ? (
+                  <PageFrame
+                    html={livePage.html}
+                    styles=""
+                    assets={{}}
+                    page={selectedPage}
+                    externalBaseUrl={liveUrl ?? undefined}
+                    width={frame.width}
+                    height={frame.height}
+                    scale={zoom}
+                    interactive
+                    colorScheme={colorScheme}
+                  />
+                ) : (
+                  <Waiting style={{ width: frame.width * zoom, height: frame.height * zoom }}>
+                    {!liveUrl
+                      ? 'This page is not published yet.'
+                      : livePage?.page === selectedPage && livePage.status === 'error'
+                        ? 'Live page unavailable (offline or not published at this path).'
+                        : 'Loading live page…'}
+                  </Waiting>
+                )}
+              </StagePage>
+            </CompareColumn>
+          ) : !compact && side === 'both' ? (
+            (() => {
+              const splitZoom = Math.min(
+                zoom,
+                stageSize.width > 0 ? Math.max(0.2, (stageSize.width - 16) / 2 / frame.width) : zoom,
+              )
+              return (
+                <CompareGrid>
+                  <CompareColumn>
+                    <SideLabel>
+                      <span className="dot" />
+                      Draft
+                    </SideLabel>
+                    <StagePage
+                      data-video-drop-surface
+                      style={{ width: frame.width * splitZoom }}
+                      {...withOpenSurface(selectedRefs)}
+                      {...part('page')}
+                    >
+                      <PageFrame
+                        html={html}
+                        styles={document.styles}
+                        assets={previews}
+                        page={selectedPage}
+                        width={frame.width}
+                        height={frame.height}
+                        scale={splitZoom}
+                        interactive
+                        knownPages={graph.pages}
+                        onNavigate={(to, state) => {
+                          if (state === 'promised') openPromise(to)
+                          else onSelectPage(to)
+                        }}
+                        picking={picking}
+                        highlight={highlight}
+                        onPick={handlePick}
+                        onEdit={(path, outerHtml) =>
+                          onEditElement(selectedPage, path, outerHtml)
+                        }
+                        colorScheme={colorScheme}
+                      />
+                      {selection && selection.page === selectedPage && pickedAt ? (
+                        <SelectionAsk
+                          document={document}
+                          page={selectedPage}
+                          label={selection.label || 'thing'}
+                          text={pickedAt.text}
+                          at={{
+                            x: pickedAt.rect.x * splitZoom,
+                            y: pickedAt.rect.y * splitZoom,
+                            width: pickedAt.rect.width * splitZoom,
+                            height: pickedAt.rect.height * splitZoom,
+                          }}
+                          bounds={{ width: frame.width * splitZoom, height: frame.height * splitZoom }}
+                          busy={asking}
+                          agents={agents}
+                          onAsk={request => {
+                            setPickedAt(null)
+                            onAsk(request)
+                          }}
+                          onLink={href => {
+                            setPickedAt(null)
+                            onLinkSelection(selectedPage, selection.path, href)
+                          }}
+                          onDismiss={() => {
+                            setPickedAt(null)
+                            onSelectElement(null)
+                          }}
+                        />
+                      ) : null}
+                    </StagePage>
+                  </CompareColumn>
+                  <CompareColumn>
+                    <SideLabel $live>
+                      <span className="dot" />
+                      Live
+                    </SideLabel>
+                    <StagePage style={{ width: frame.width * splitZoom }}>
+                      {livePage && livePage.page === selectedPage && livePage.status === 'loaded' && livePage.html !== null ? (
+                        <PageFrame
+                          html={livePage.html}
+                          styles=""
+                          assets={{}}
+                          page={selectedPage}
+                          externalBaseUrl={liveUrl ?? undefined}
+                          width={frame.width}
+                          height={frame.height}
+                          scale={splitZoom}
+                          interactive
+                          colorScheme={colorScheme}
+                        />
+                      ) : (
+                        <Waiting style={{ width: frame.width * splitZoom, height: frame.height * splitZoom }}>
+                          {!liveUrl
+                            ? 'Not published yet.'
+                            : livePage?.page === selectedPage && livePage.status === 'error'
+                              ? 'Live page unavailable (offline or not published at this path).'
+                              : 'Loading live page…'}
+                        </Waiting>
+                      )}
+                    </StagePage>
+                  </CompareColumn>
+                </CompareGrid>
+              )
+            })()
+          ) : (
           <StagePage data-video-drop-surface style={{ width: frame.width * zoom }} {...withOpenSurface(selectedRefs)} {...part('page')}>
             <PageFrame
               html={html}
@@ -695,6 +1074,7 @@ export function SiteBoardView({
               onEdit={(path, outerHtml, from) =>
                 onEditElement(compact && from ? from : selectedPage, path, outerHtml)
               }
+              colorScheme={compact ? undefined : colorScheme}
             />
             {pageIsBlank ? <BlankPage>Nothing on this page yet.</BlankPage> : null}
             {!compact && selection && selection.page === selectedPage && pickedAt ? (
@@ -709,6 +1089,7 @@ export function SiteBoardView({
                 width: pickedAt.rect.width * zoom,
                 height: pickedAt.rect.height * zoom,
               }}
+              bounds={{ width: frame.width * zoom, height: frame.height * zoom }}
               busy={asking}
               agents={agents}
               onAsk={request => {
@@ -726,7 +1107,74 @@ export function SiteBoardView({
             />
           ) : null}
           </StagePage>
+          )}
         </Stage>
+
+        {sourceOpen && !compact ? (
+          <SourceDrawer role="region" data-site-overlay="" aria-label="HTML and CSS source editor">
+            <SourceHead>
+              <Sides role="tablist" aria-label="Source file">
+                <SideButton
+                  type="button"
+                  role="tab"
+                  aria-selected={sourceTab === 'html'}
+                  aria-pressed={sourceTab === 'html'}
+                  onClick={() => switchSourceTab('html')}
+                >
+                  {selectedPage}
+                </SideButton>
+                <SideButton
+                  type="button"
+                  role="tab"
+                  aria-selected={sourceTab === 'css'}
+                  aria-pressed={sourceTab === 'css'}
+                  onClick={() => switchSourceTab('css')}
+                >
+                  styles/site.css
+                </SideButton>
+              </Sides>
+              <span style={{ flex: 1 }} />
+              <ScopeButton
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(sourceDraft).catch(() => {})
+                  setCopiedHtml(true)
+                  if (copiedHtmlTimerRef.current !== null) {
+                    window.clearTimeout(copiedHtmlTimerRef.current)
+                  }
+                  copiedHtmlTimerRef.current = window.setTimeout(() => {
+                    copiedHtmlTimerRef.current = null
+                    setCopiedHtml(false)
+                  }, 1600)
+                }}
+              >
+                {copiedHtml ? 'Copied' : sourceTab === 'html' ? 'Copy HTML' : 'Copy CSS'}
+              </ScopeButton>
+              <PrimaryButton
+                type="button"
+                onClick={() => {
+                  if (sourceTab === 'html') onWritePageSource?.(selectedPage, sourceDraft)
+                  else onWriteStylesSource?.(sourceDraft)
+                  setSourceDirty(false)
+                }}
+              >
+                Apply
+              </PrimaryButton>
+              <ScopeButton type="button" onClick={() => openSourceDrawer(false)}>
+                Close
+              </ScopeButton>
+            </SourceHead>
+            <SourceEditor
+              value={sourceDraft}
+              spellCheck={false}
+              aria-label={sourceTab === 'html' ? `HTML source for ${selectedPage}` : 'CSS source for styles/site.css'}
+              onChange={event => {
+                setSourceDraft(event.currentTarget.value)
+                setSourceDirty(true)
+              }}
+            />
+          </SourceDrawer>
+        ) : null}
 
         <Foot {...hidden}>
           {document.manifest.published?.url ? (
@@ -756,6 +1204,38 @@ export function SiteBoardView({
               </SizeButton>
             ))}
           </Sizes>
+          <Sizes role="group" aria-label="Preview color scheme">
+            <SizeButton
+              type="button"
+              $on={colorScheme === 'light'}
+              title="Preview in light color scheme"
+              onClick={() => setColorScheme('light')}
+            >
+              Light
+            </SizeButton>
+            <SizeButton
+              type="button"
+              $on={colorScheme === 'dark'}
+              title="Preview in dark color scheme"
+              onClick={() => setColorScheme('dark')}
+            >
+              Dark
+            </SizeButton>
+          </Sizes>
+          {onUndo || onRedo ? (
+            <Sizes>
+              {onUndo ? (
+                <SizeButton type="button" $on={false} disabled={!canUndo} title="Undo (⌘Z)" onClick={onUndo}>
+                  Undo
+                </SizeButton>
+              ) : null}
+              {onRedo ? (
+                <SizeButton type="button" $on={false} disabled={!canRedo} title="Redo (⇧⌘Z)" onClick={onRedo}>
+                  Redo
+                </SizeButton>
+              ) : null}
+            </Sizes>
+          ) : null}
           <span style={{ flex: 1 }} />
           <PickToggle type="button" $on={picking} onClick={() => setPicking(!picking)}>
             {picking ? 'Picking elements' : 'Pick elements'}
@@ -791,8 +1271,15 @@ export function SiteBoardView({
           <Label htmlFor="page-title">Page title</Label>
           <Input
             id="page-title"
-            value={pages.find(page => page.path === selectedPage)?.title ?? ''}
-            onChange={event => onSetPageTitle(selectedPage, event.currentTarget.value)}
+            value={titleDraft}
+            onChange={event => setTitleDraft(event.currentTarget.value)}
+            onBlur={commitTitle}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                event.currentTarget.blur()
+              }
+            }}
           />
         </Field>
 
@@ -821,14 +1308,123 @@ export function SiteBoardView({
           >
             ↓ Move
           </ScopeButton>
-          <DangerButton
-            type="button"
-            disabled={pages.length <= 1}
-            onClick={() => onDeletePage(selectedPage)}
-          >
-            Delete
-          </DangerButton>
+          {confirmDeletePage ? (
+            <DangerButton
+              type="button"
+              onClick={() => {
+                setConfirmDeletePage(false)
+                onDeletePage(selectedPage)
+              }}
+            >
+              Confirm
+            </DangerButton>
+          ) : (
+            <DangerButton
+              type="button"
+              disabled={pages.length <= 1}
+              onClick={() => setConfirmDeletePage(true)}
+            >
+              Delete
+            </DangerButton>
+          )}
         </Ops>
+
+        {confirmDeletePage ? (
+          <Scope>
+            <Faint>Delete {selectedPage}?</Faint>
+            <ScopeButton type="button" onClick={() => setConfirmDeletePage(false)}>
+              Cancel
+            </ScopeButton>
+          </Scope>
+        ) : null}
+
+        {onDuplicatePage || onRenamePage ? (
+          <Scope>
+            {onDuplicatePage ? (
+              <ScopeButton
+                type="button"
+                title="Make a copy of this page keeping its layout, header and footer"
+                onClick={() => onDuplicatePage(selectedPage)}
+              >
+                Duplicate
+              </ScopeButton>
+            ) : null}
+            {onRenamePage ? (
+              <ScopeButton
+                type="button"
+                title="Change this page's slug/path and update internal links"
+                onClick={() => {
+                  setSlugDraft(selectedPage)
+                  setRenamingSlug(open => !open)
+                }}
+              >
+                Rename slug
+              </ScopeButton>
+            ) : null}
+          </Scope>
+        ) : null}
+
+        {renamingSlug && onRenamePage ? (
+          <Field>
+            <Label htmlFor="page-slug">Page path / slug</Label>
+            <Input
+              id="page-slug"
+              value={slugDraft}
+              placeholder="about or pricing.html"
+              onChange={event => setSlugDraft(event.currentTarget.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  if (slugDraft.trim() && slugDraft.trim() !== selectedPage) {
+                    onRenamePage(selectedPage, slugDraft.trim())
+                  }
+                  setRenamingSlug(false)
+                }
+                if (event.key === 'Escape') {
+                  setRenamingSlug(false)
+                }
+              }}
+            />
+            <Scope>
+              <ScopeButton
+                type="button"
+                onClick={() => {
+                  if (slugDraft.trim() && slugDraft.trim() !== selectedPage) {
+                    onRenamePage(selectedPage, slugDraft.trim())
+                  }
+                  setRenamingSlug(false)
+                }}
+              >
+                Apply rename
+              </ScopeButton>
+              <ScopeButton type="button" onClick={() => setRenamingSlug(false)}>
+                Cancel
+              </ScopeButton>
+            </Scope>
+          </Field>
+        ) : null}
+
+        {onUpdatePageHead ? (
+          <>
+            <FileDrawer>
+              <Disclosure
+                type="button"
+                aria-expanded={seoOpen}
+                onClick={() => setSeoOpen(open => !open)}
+              >
+                <Caret $open={seoOpen}>▸</Caret>
+                <Meta>Page head &amp; SEO</Meta>
+              </Disclosure>
+            </FileDrawer>
+            {seoOpen ? (
+              <PageSeoEditor
+                html={html}
+                page={selectedPage}
+                onUpdate={patch => onUpdatePageHead(selectedPage, patch)}
+              />
+            ) : null}
+          </>
+        ) : null}
 
         {picked ? (
           <>
@@ -1139,6 +1735,10 @@ export function SiteBoardView({
             onAddPage()
             setMapOpen(false)
           }}
+          onAdd404Page={onAdd404Page ? () => {
+            onAdd404Page()
+            setMapOpen(false)
+          } : undefined}
           onSetGoal={onSetGoal}
           onClose={() => setMapOpen(false)}
         />
@@ -1170,6 +1770,152 @@ export function SiteBoardView({
   )
 }
 
+function LocalCalledInput({
+  fileName,
+  alias,
+  onCommit,
+}: {
+  fileName: string
+  alias: string
+  onCommit: (value: string) => void
+}): React.ReactElement {
+  const [draft, setDraft] = useState(alias)
+  useEffect(() => {
+    setDraft(alias)
+  }, [alias, fileName])
+  const commit = (): void => {
+    if (draft.trim() !== alias) onCommit(draft)
+  }
+  return (
+    <CalledInput
+      value={draft}
+      placeholder={suggestedName(fileName)}
+      aria-label={`What ${fileName} is called`}
+      onChange={event => setDraft(event.currentTarget.value)}
+      onBlur={commit}
+      onKeyDown={event => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          event.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
+
+function PageSeoEditor({
+  html,
+  page,
+  onUpdate,
+}: {
+  html: string
+  page: string
+  onUpdate: (patch: Partial<PageHeadMeta>) => void
+}): React.ReactElement {
+  const meta = useMemo(() => readPageHead(html), [html])
+  const [draft, setDraft] = useState<PageHeadMeta>(meta)
+  const [urlErrors, setUrlErrors] = useState<{ ogImage?: string; favicon?: string }>({})
+  useEffect(() => {
+    setDraft(meta)
+    setUrlErrors({})
+  }, [page, meta])
+
+  const commitField = (key: keyof PageHeadMeta): void => {
+    const val = draft[key]
+    if (key === 'ogImage' || key === 'favicon') {
+      const trimmed = val.trim()
+      if (trimmed && !isSafeUrlScheme(trimmed)) {
+        setUrlErrors(cur => ({
+          ...cur,
+          [key]: 'Use a relative asset path (e.g. assets/social.png) or an https:// URL.',
+        }))
+        return
+      }
+      setUrlErrors(cur => ({ ...cur, [key]: undefined }))
+    }
+    if (val !== meta[key]) onUpdate({ [key]: val })
+  }
+
+  return (
+    <SeoFields>
+      <Field>
+        <Label htmlFor="seo-lang">Language (lang)</Label>
+        <Input
+          id="seo-lang"
+          value={draft.lang}
+          placeholder="en"
+          onChange={e => setDraft(cur => ({ ...cur, lang: e.currentTarget.value }))}
+          onBlur={() => commitField('lang')}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
+        />
+      </Field>
+      <Field>
+        <Label htmlFor="seo-description">Meta description</Label>
+        <Input
+          id="seo-description"
+          value={draft.description}
+          placeholder="Summary for search results"
+          onChange={e => setDraft(cur => ({ ...cur, description: e.currentTarget.value }))}
+          onBlur={() => commitField('description')}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
+        />
+      </Field>
+      <Field>
+        <Label htmlFor="seo-og-title">og:title</Label>
+        <Input
+          id="seo-og-title"
+          value={draft.ogTitle}
+          placeholder="Social share title"
+          onChange={e => setDraft(cur => ({ ...cur, ogTitle: e.currentTarget.value }))}
+          onBlur={() => commitField('ogTitle')}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
+        />
+      </Field>
+      <Field>
+        <Label htmlFor="seo-og-description">og:description</Label>
+        <Input
+          id="seo-og-description"
+          value={draft.ogDescription}
+          placeholder="Social share description"
+          onChange={e => setDraft(cur => ({ ...cur, ogDescription: e.currentTarget.value }))}
+          onBlur={() => commitField('ogDescription')}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
+        />
+      </Field>
+      <Field>
+        <Label htmlFor="seo-og-image">og:image</Label>
+        <Input
+          id="seo-og-image"
+          value={draft.ogImage}
+          placeholder="assets/social.png or https://…"
+          onChange={e => {
+            setDraft(cur => ({ ...cur, ogImage: e.currentTarget.value }))
+            setUrlErrors(cur => (cur.ogImage ? { ...cur, ogImage: undefined } : cur))
+          }}
+          onBlur={() => commitField('ogImage')}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
+        />
+        {urlErrors.ogImage ? <Hint role="alert">{urlErrors.ogImage}</Hint> : null}
+      </Field>
+      <Field>
+        <Label htmlFor="seo-favicon">Favicon</Label>
+        <Input
+          id="seo-favicon"
+          value={draft.favicon}
+          placeholder="assets/favicon.ico"
+          onChange={e => {
+            setDraft(cur => ({ ...cur, favicon: e.currentTarget.value }))
+            setUrlErrors(cur => (cur.favicon ? { ...cur, favicon: undefined } : cur))
+          }}
+          onBlur={() => commitField('favicon')}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
+        />
+        {urlErrors.favicon ? <Hint role="alert">{urlErrors.favicon}</Hint> : null}
+      </Field>
+    </SeoFields>
+  )
+}
+
 /**
  * What you can do to the element you clicked.
  *
@@ -1193,23 +1939,40 @@ function PickedControls({
 }): React.ReactElement {
   // The same reading the tests cover — not a second hand-rolled walk.
   const info = useMemo(() => readElement(html, picked.path), [html, picked.path])
+  const [textDraft, setTextDraft] = useState(info?.text ?? '')
+  useEffect(() => {
+    setTextDraft(info?.text ?? '')
+  }, [picked.path, info?.text])
 
-  const images = material.filter(item => item.kind === 'image')
+  const images = material.filter(item => item.kind === 'image' && item.role !== 'reference')
 
   if (!info) {
     return <Hint>That element is gone — pick another.</Hint>
+  }
+
+  const canPlaceImage = info.isImage || (info.editableText && !info.text.trim())
+
+  const commitText = (): void => {
+    if (textDraft !== info.text) onText(textDraft)
   }
 
   return (
     <Picked>
       {info.editableText ? (
         <Input
-          value={info.text}
+          value={textDraft}
           aria-label="Element text"
-          onChange={event => onText(event.currentTarget.value)}
+          onChange={event => setTextDraft(event.currentTarget.value)}
+          onBlur={commitText}
+          onKeyDown={event => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              event.currentTarget.blur()
+            }
+          }}
         />
       ) : null}
-      {info.isImage || (!info.editableText && !info.isImage) ? (
+      {canPlaceImage ? (
         <RoleSelect
           $set={false}
           value=""
@@ -1921,6 +2684,63 @@ const HistoryRow = styled.div.attrs(chrome('list-row'))`
   &:last-child {
     border-bottom: 0;
   }
+`
+
+const CompareGrid = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+`
+
+const CompareColumn = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+`
+
+const SourceDrawer = styled.section`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--pure-chrome-line);
+  border-radius: var(--pure-chrome-radius, 3px);
+  background: var(--pure-chrome-surface);
+`
+
+const SourceHead = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`
+
+const SourceEditor = styled.textarea`
+  min-height: 180px;
+  max-height: 320px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--pure-chrome-line);
+  border-radius: var(--pure-chrome-radius, 3px);
+  background: var(--pure-chrome-well);
+  color: var(--platform-colors-text);
+  font-family: var(--platform-typography-font-family-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 2;
+`
+
+const SeoFields = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--pure-chrome-line);
+  border-radius: var(--pure-chrome-radius, 3px);
+  background: var(--pure-chrome-well);
 `
 
 const HistoryLabel = styled.span`

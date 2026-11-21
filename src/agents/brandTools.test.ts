@@ -207,9 +207,9 @@ describe('proposing to the organisation', () => {
   it('sends given images as they are, for the house style when the site has no organisation brand', async () => {
     bridge.offered = true
     const s = site()
-    await proposeSamplesToOrganisationHandler(s.context, { images: ['/Decks/one.png', '/Decks/two.JPG'], note: 'A great deck' })
+    await proposeSamplesToOrganisationHandler(s.context, { images: ['/Work/Pilot.site/reviews/one.png', '/Work/Brands/two.JPG'], note: 'A great deck' })
     expect(s.exports).toEqual([])
-    expect(bridge.proposeBrandSamples).toHaveBeenCalledWith({ images: ['/Decks/one.png', '/Decks/two.JPG'], note: 'A great deck' })
+    expect(bridge.proposeBrandSamples).toHaveBeenCalledWith({ images: ['/Work/Pilot.site/reviews/one.png', '/Work/Brands/two.JPG'], note: 'A great deck' })
   })
 
   it('refuses images that are not pictures by path', async () => {

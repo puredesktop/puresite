@@ -19,7 +19,7 @@ export const ASSET_ROLES: { id: AssetRole; label: string; hint: string }[] = [
     label: 'Design reference',
     hint: 'Never shown — the piece is drawn to look like it',
   },
-  { id: 'logo', label: 'Logo', hint: 'Brand mark for the title and closing slides' },
+  { id: 'logo', label: 'Logo', hint: 'Brand mark for the site header and footer' },
 ]
 
 export interface MaterialItem extends AssetNote {

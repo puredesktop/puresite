@@ -134,12 +134,13 @@ describe('what the frame loads', () => {
   })
   afterEach(async () => { await act(async () => root.unmount()); host.remove() })
   const loaded = () => host.querySelector('iframe')!.getAttribute('srcdoc') ?? ''
+  const nonce = () => /var NONCE = '([^']+)'/.exec(loaded())?.[1] ?? ''
   const render = (html: string, props: Partial<React.ComponentProps<typeof PageFrame>> = {}) =>
     act(async () => root.render(<PageFrame html={html} styles="" assets={{}} page="index.html" width={600} height={400} {...props} />))
   const edit = (markup: string) => act(async () => {
     window.dispatchEvent(new MessageEvent('message', {
       source: host.querySelector('iframe')!.contentWindow,
-      data: { type: 'puresite:edited', path: '0', outerHtml: markup },
+      data: { type: 'puresite:edited', path: '0', outerHtml: markup, nonce: nonce() },
     }))
   })
   const A = '<p>First</p>', B = '<p>Second</p>', C = '<p>Third</p>'
@@ -193,7 +194,7 @@ describe('what the frame loads', () => {
     await render(B, { editInPlace: true, onEdit, page: 'about.html' })
     expect(loaded()).toContain('Second')
     await act(async () => {
-      window.dispatchEvent(new MessageEvent('message', { source: host.querySelector('iframe')!.contentWindow, data: { type: 'puresite:ready' } }))
+      window.dispatchEvent(new MessageEvent('message', { source: host.querySelector('iframe')!.contentWindow, data: { type: 'puresite:ready', nonce: nonce() } }))
     })
     await edit('<p>Typed on the second page</p>')
     expect(onEdit.mock.lastCall?.[2]).toBe('about.html')
@@ -206,7 +207,7 @@ describe('what the frame loads', () => {
     commitRef.current!(then)
     expect(then).not.toHaveBeenCalled()
     await act(async () => {
-      window.dispatchEvent(new MessageEvent('message', { source: host.querySelector('iframe')!.contentWindow, data: { type: 'puresite:committed' } }))
+      window.dispatchEvent(new MessageEvent('message', { source: host.querySelector('iframe')!.contentWindow, data: { type: 'puresite:committed', nonce: nonce() } }))
     })
     expect(then).toHaveBeenCalledOnce()
     const silent = vi.fn()
@@ -217,7 +218,7 @@ describe('what the frame loads', () => {
 
   describe('a frame left without layout', () => {
     const size = (laidOut: boolean) => act(async () => {
-      window.dispatchEvent(new MessageEvent('message', { source: host.querySelector('iframe')!.contentWindow, data: { type: 'puresite:size', height: 584, laidOut } }))
+      window.dispatchEvent(new MessageEvent('message', { source: host.querySelector('iframe')!.contentWindow, data: { type: 'puresite:size', height: 584, laidOut, nonce: nonce() } }))
     })
     const iframe = () => host.querySelector('iframe')!
     afterEach(() => { vi.useRealTimers() })

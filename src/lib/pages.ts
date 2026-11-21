@@ -7,30 +7,154 @@
  */
 import { DEFAULT_HOME_PAGE } from '../constants'
 import {
+  orderedPages,
   relativePrefix,
   setPageTitle,
+  starter404Html,
   starterPageHtml,
   titleFromPage,
   type SiteDocument,
 } from './siteDocument'
+import { hrefFrom, repointPromise } from './siteLinks'
+import { mapCssUrls, mapSrcset, resolvePagePath } from './siteReferences'
+
+const DRIVE_PREFIX = /^[a-z]:/i
+const ONLY_DOTS = /^\.+$/
+
+/** True when a raw package page key cannot traverse outside `pages/`. */
+export function isSafePagePath(path: string): boolean {
+  if (!path || typeof path !== 'string') return false
+  if (path.startsWith('/') || path.includes('\\') || path.includes('\0')) return false
+  if (DRIVE_PREFIX.test(path)) return false
+  const parts = path.split('/')
+  return parts.every(
+    part =>
+      part.length > 0 &&
+      part !== '.' &&
+      part !== '..' &&
+      !ONLY_DOTS.test(part) &&
+      !DRIVE_PREFIX.test(part),
+  )
+}
 
 /** A page path that is safe to write and sane to serve. */
 export function normalizePagePath(input: string): string {
-  let path = (input || '').trim().replace(/^\/+/, '').replace(/\\/g, '/')
-  path = path
+  const raw = (input || '').trim().replace(/\\/g, '/').replace(/^\/+/, '')
+  if (!raw || DRIVE_PREFIX.test(raw)) return ''
+  const segments = raw
     .split('/')
-    .filter(part => part && part !== '.' && part !== '..')
+    .filter(part => part && part !== '.' && part !== '..' && !ONLY_DOTS.test(part) && !DRIVE_PREFIX.test(part))
     .map(part =>
       part
         .toLowerCase()
         .replace(/[^a-z0-9._-]+/g, '-')
         .replace(/^-+|-+$/g, ''),
     )
-    .filter(Boolean)
-    .join('/')
-  if (!path) return ''
+    // Re-filter AFTER sanitization so inputs like "..!/" or "-..-" cannot collapse into "..".
+    .filter(part => part && part !== '.' && part !== '..' && !ONLY_DOTS.test(part))
+  let path = segments.join('/')
+  if (!path || !isSafePagePath(path)) return ''
   if (!path.endsWith('.html')) path = `${path}/${DEFAULT_HOME_PAGE}`
-  return path
+  return isSafePagePath(path) ? path : ''
+}
+
+const SAFE_RASTER_DATA_URL = /^data:image\/(?:png|jpeg|jpg|gif|webp|avif);base64,[a-z0-9+/=\s]+$/i
+const SCHEME_PREFIX = /^[a-z][a-z\d+.-]*:/i
+const ALLOWED_EXPLICIT_SCHEMES = /^(?:https?|mailto|tel):/i
+
+/**
+ * Strict URL scheme allowlist for links and media sources:
+ * relative paths, #fragments, http:, https:, mailto:, tel:, and base64 raster data:image/*.
+ */
+export function isSafeUrlScheme(url: string): boolean {
+  const value = (url || '').replace(/[\u0000-\u001f\u007f]+/g, '').trim()
+  if (!value) return false
+  if (value.startsWith('#')) return true
+  if (value.startsWith('//')) return false
+  if (!SCHEME_PREFIX.test(value)) return true
+  if (ALLOWED_EXPLICIT_SCHEMES.test(value)) return true
+  if (SAFE_RASTER_DATA_URL.test(value)) return true
+  return false
+}
+
+const FORBIDDEN_SVG_LOCAL_NAMES = new Set([
+  'script',
+  'foreignobject',
+  'iframe',
+  'object',
+  'embed',
+  'set',
+  'handler',
+])
+
+/**
+ * Validate a base64-encoded SVG file before importing it into `assets/`.
+ * Rejects XML entities/doctypes/stylesheets, null bytes, parse errors, active elements,
+ * event handlers, external/active hrefs, and CSS url()/@import in `<style>`.
+ */
+export function validateSafeSvgBase64(base64: string): void {
+  const compact = (base64 || '').replace(/\s+/g, '')
+  let decoded = ''
+  try {
+    const bytes = Uint8Array.from(atob(compact), char => char.charCodeAt(0))
+    decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  } catch {
+    throw new Error('SVG file could not be decoded.')
+  }
+  if (
+    decoded.includes('\0') ||
+    /<!DOCTYPE\b/i.test(decoded) ||
+    /<!ENTITY\b/i.test(decoded) ||
+    /<\?xml-stylesheet\b/i.test(decoded)
+  ) {
+    throw new Error('SVG files with DOCTYPE, XML entities, stylesheets, or null bytes cannot be uploaded.')
+  }
+  if (typeof DOMParser === 'undefined') {
+    if (
+      /<script\b/i.test(decoded) ||
+      /\bon[a-z]+\s*=/i.test(decoded) ||
+      /javascript\s*:/i.test(decoded) ||
+      /<foreignObject\b/i.test(decoded) ||
+      /<iframe\b/i.test(decoded)
+    ) {
+      throw new Error('SVG files containing active scripts or event handlers cannot be uploaded.')
+    }
+    return
+  }
+  const doc = new DOMParser().parseFromString(decoded, 'image/svg+xml')
+  const root = doc.documentElement
+  if (!root || doc.querySelector('parsererror') || root.localName.toLowerCase() !== 'svg') {
+    throw new Error('SVG file is malformed and cannot be uploaded.')
+  }
+  const nodes: Element[] = [root, ...Array.from(root.querySelectorAll('*'))]
+  for (const el of nodes) {
+    const local = el.localName.toLowerCase()
+    if (FORBIDDEN_SVG_LOCAL_NAMES.has(local) || local.startsWith('animate')) {
+      throw new Error(`SVG files containing <${el.localName}> cannot be uploaded.`)
+    }
+    if (local === 'style') {
+      const css = el.textContent ?? ''
+      if (/@import\b|url\s*\(|expression\s*\(/i.test(css)) {
+        throw new Error('SVG files with @import or url() inside <style> cannot be uploaded.')
+      }
+    }
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase()
+      const localAttr = attr.localName.toLowerCase()
+      if (name.startsWith('on') || localAttr.startsWith('on')) {
+        throw new Error(`SVG files containing event handler "${attr.name}" cannot be uploaded.`)
+      }
+      if (localAttr === 'href' || name === 'xlink:href' || name === 'href') {
+        const val = attr.value.replace(/[\u0000-\u001f\u007f]+/g, '').trim()
+        if (val && !val.startsWith('#')) {
+          throw new Error('SVG href attributes may only reference internal #fragments.')
+        }
+      }
+      if (localAttr === 'style' && /@import\b|url\s*\(|expression\s*\(/i.test(attr.value)) {
+        throw new Error('SVG inline styles may not use url() or @import.')
+      }
+    }
+  }
 }
 
 export function addPage(
@@ -45,6 +169,176 @@ export function addPage(
     ...document,
     pages: { ...document.pages, [path]: setPageTitle(html, title) },
     manifest: { ...document.manifest, pages: [...document.manifest.pages, path] },
+  }
+}
+
+/** Add a starter 404.html page if it does not exist yet. */
+export function add404Page(document: SiteDocument): SiteDocument {
+  if (document.pages['404.html']) return document
+  return {
+    ...document,
+    pages: { ...document.pages, '404.html': starter404Html(document.title) },
+    manifest: { ...document.manifest, pages: [...document.manifest.pages, '404.html'] },
+  }
+}
+
+/** Duplicate an existing page, preserving its markup, header and footer. */
+export function duplicatePage(
+  document: SiteDocument,
+  sourcePath: string,
+  requestedPath?: string,
+): { document: SiteDocument; path: string } {
+  const sourceHtml = document.pages[sourcePath]
+  if (!sourceHtml) return { document, path: sourcePath }
+
+  const stem = sourcePath
+    .replace(/\/index\.html$/i, '')
+    .replace(/\.html$/i, '')
+  let target = requestedPath ? normalizePagePath(requestedPath) : ''
+  if (!target || document.pages[target]) {
+    let n = 2
+    const base = stem === 'index' ? 'page' : `${stem}-copy`
+    target = normalizePagePath(base)
+    while (!target || document.pages[target]) {
+      target = normalizePagePath(`${base}-${n}`)
+      n += 1
+    }
+  }
+
+  const adjustedHtml =
+    sourcePath === target ? sourceHtml : adjustRelativePaths(sourceHtml, sourcePath, target)
+  const sourceTitle = titleFromPage(sourceHtml) || sourcePath
+  const nextHtml = setPageTitle(adjustedHtml, `${sourceTitle} (copy)`)
+
+  const currentOrder = orderedPages(document).map(p => p.path)
+  const idx = currentOrder.indexOf(sourcePath)
+  const nextOrder = [...currentOrder]
+  nextOrder.splice(idx >= 0 ? idx + 1 : nextOrder.length, 0, target)
+
+  return {
+    path: target,
+    document: {
+      ...document,
+      pages: { ...document.pages, [target]: nextHtml },
+      manifest: { ...document.manifest, pages: nextOrder },
+    },
+  }
+}
+
+/**
+ * Rewrite relative asset/style URLs (including `./`, `../`, `srcset`, `<style>`, `style=""`)
+ * and relative internal page links when a page moves to a different directory depth.
+ */
+function adjustRelativePaths(html: string, fromPage: string, toPage: string): string {
+  const fromDepth = fromPage.split('/').length - 1
+  const toDepth = toPage.split('/').length - 1
+  if (fromDepth === toDepth) return html
+  const newPrefix = relativePrefix(toPage)
+
+  const rewriteAssetOrStyle = (raw: string): string => {
+    const trimmed = raw.trim()
+    if (!trimmed || trimmed.startsWith('/') || trimmed.startsWith('#') || SCHEME_PREFIX.test(trimmed)) {
+      return raw
+    }
+    const suffixMatch = /([?#].*)$/.exec(trimmed)
+    const suffix = suffixMatch ? suffixMatch[1] : ''
+    const resolved = resolvePagePath(fromPage, trimmed)
+    if (!resolved || (!resolved.startsWith('assets/') && !resolved.startsWith('styles/'))) {
+      return raw
+    }
+    return `${newPrefix}${resolved}${suffix}`
+  }
+
+  let out = html
+  // Rewrite href/src/poster pointing to relative assets/ or styles/
+  out = out.replace(
+    /(\b(?:href|src|poster)=)("|')([^"']+)\2/gi,
+    (whole, attr: string, quote: string, val: string) => {
+      const next = rewriteAssetOrStyle(val)
+      return next === val ? whole : `${attr}${quote}${next}${quote}`
+    },
+  )
+  // Rewrite srcset candidates
+  out = out.replace(
+    /(\bsrcset=)("|')([^"']*)\2/gi,
+    (_whole, attr: string, quote: string, val: string) =>
+      `${attr}${quote}${mapSrcset(val, rewriteAssetOrStyle)}${quote}`,
+  )
+  // Rewrite inline <style> blocks
+  out = out.replace(
+    /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+    (_whole, open: string, body: string, close: string) =>
+      open + mapCssUrls(body, rewriteAssetOrStyle, { quote: '"' }) + close,
+  )
+  // Rewrite inline style="..." attributes
+  out = out.replace(
+    /(\bstyle\s*=\s*)("|')([\s\S]*?)\2/gi,
+    (_whole, attr: string, quote: string, val: string) =>
+      attr + quote + mapCssUrls(val, rewriteAssetOrStyle, { quote: 'auto', attrQuote: quote as '"' | "'" }) + quote,
+  )
+  // Rewrite relative internal <a href="..."> page links
+  out = out.replace(
+    /<a\b([^>]*)>/gi,
+    (tag, attrs: string) =>
+      `<a${attrs.replace(
+        /(\bhref=)("|')([^"']+)\2/i,
+        (whole, attr: string, quote: string, href: string) => {
+          const trimmed = href.trim()
+          if (
+            !trimmed ||
+            trimmed.startsWith('/') ||
+            trimmed.startsWith('#') ||
+            trimmed.startsWith('//') ||
+            SCHEME_PREFIX.test(trimmed)
+          ) {
+            return whole
+          }
+          const resolved = resolvePagePath(fromPage, trimmed)
+          if (!resolved || resolved.startsWith('assets/') || resolved.startsWith('styles/')) {
+            return whole
+          }
+          const suffixMatch = /([?#].*)$/.exec(trimmed)
+          const suffix = suffixMatch ? suffixMatch[1] : ''
+          return `${attr}${quote}${hrefFrom(toPage, resolved)}${suffix}${quote}`
+        },
+      )}>`,
+  )
+  return out
+}
+
+/** Rename a page slug/path and automatically repoint internal links across every page. */
+export function renamePagePath(
+  document: SiteDocument,
+  oldPath: string,
+  requestedNewPath: string,
+): { document: SiteDocument; path: string } {
+  if (oldPath === DEFAULT_HOME_PAGE) return { document, path: oldPath }
+  if (!document.pages[oldPath]) return { document, path: oldPath }
+  const nextPath = normalizePagePath(requestedNewPath)
+  if (!nextPath || nextPath === oldPath || document.pages[nextPath]) {
+    return { document, path: oldPath }
+  }
+
+  const movedHtml = adjustRelativePaths(document.pages[oldPath]!, oldPath, nextPath)
+
+  const pages: Record<string, string> = {}
+  for (const [key, html] of Object.entries(document.pages)) {
+    pages[key === oldPath ? nextPath : key] = key === oldPath ? movedHtml : html
+  }
+  const repointed = repointPromise(pages, oldPath, nextPath)
+  const order = orderedPages(document).map(p => (p.path === oldPath ? nextPath : p.path))
+
+  return {
+    path: nextPath,
+    document: {
+      ...document,
+      pages: repointed,
+      manifest: {
+        ...document.manifest,
+        pages: order,
+        ...(document.manifest.goal === oldPath ? { goal: nextPath } : {}),
+      },
+    },
   }
 }
 
@@ -75,7 +369,8 @@ export function movePage(
   from: number,
   to: number,
 ): SiteDocument {
-  const order = [...document.manifest.pages]
+  const order = orderedPages(document).map(page => page.path)
+  if (!Number.isInteger(from) || !Number.isInteger(to)) return document
   if (from < 0 || from >= order.length) return document
   const target = Math.max(0, Math.min(order.length - 1, to))
   if (target === from) return document
@@ -162,6 +457,82 @@ export function setElementText(
   return serialize(doc)
 }
 
+const FORBIDDEN_EDIT_TAGS = new Set([
+  'SCRIPT',
+  'IFRAME',
+  'OBJECT',
+  'EMBED',
+  'BASE',
+  'META',
+  'LINK',
+  'STYLE',
+  'TEMPLATE',
+  'SVG',
+  'MATH',
+  'NOSCRIPT',
+  'NOEMBED',
+  'XMP',
+  'FOREIGNOBJECT',
+  'ANIMATE',
+  'SET',
+  'FORM',
+])
+const URL_ATTRS = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'poster'])
+
+/**
+ * Strip dangerous tags, event handlers, unsafe URL schemes, and preview-only
+ * markers from markup arriving from an inline preview edit (`puresite:edited`).
+ */
+export function sanitizeEditedOuterHtml(outerHtml: string): string {
+  const doc = parsePage(`<body>${outerHtml}</body>`)
+  if (!doc?.body) return ''
+  const root = doc.body.firstElementChild
+  if (!root || FORBIDDEN_EDIT_TAGS.has(root.tagName.toUpperCase())) return ''
+
+  const scrub = (el: Element): void => {
+    for (const child of Array.from(el.children)) {
+      if (FORBIDDEN_EDIT_TAGS.has(child.tagName.toUpperCase())) {
+        child.remove()
+      } else {
+        scrub(child)
+      }
+    }
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase()
+      if (
+        name.startsWith('on') ||
+        name === 'srcdoc' ||
+        name === 'data-site-link' ||
+        name === 'data-site-state' ||
+        name === 'contenteditable'
+      ) {
+        el.removeAttribute(attr.name)
+        continue
+      }
+      if (URL_ATTRS.has(name) && !isSafeUrlScheme(attr.value)) {
+        el.removeAttribute(attr.name)
+        continue
+      }
+      if (name === 'srcset') {
+        const parts = attr.value.split(',').map(p => p.trim()).filter(Boolean)
+        const safeParts = parts.filter(part => {
+          const url = part.split(/\s+/)[0] ?? ''
+          return isSafeUrlScheme(url)
+        })
+        if (safeParts.length !== parts.length) {
+          if (safeParts.length) el.setAttribute(attr.name, safeParts.join(', '))
+          else el.removeAttribute(attr.name)
+        }
+      }
+    }
+    el.classList.remove('__ps-picked', '__ps-can-edit')
+    if (el.hasAttribute('class') && !el.classList.length) el.removeAttribute('class')
+  }
+
+  scrub(root)
+  return root.outerHTML
+}
+
 /** Splice a revised element in at its path — how an inline edit lands. */
 export function replaceElement(
   html: string,
@@ -190,6 +561,7 @@ export function replaceElement(
  * thing a browser can honour.
  */
 export function linkElement(html: string, path: string, href: string): string {
+  if (!isSafeUrlScheme(href)) return html
   const doc = parsePage(html)
   if (!doc?.body) return html
   const element = elementAt(doc.body, path)
@@ -223,6 +595,7 @@ export function setElementSrc(
   src: string,
   page = DEFAULT_HOME_PAGE,
 ): string {
+  if (!isSafeUrlScheme(src)) return html
   const doc = parsePage(html)
   if (!doc?.body) return html
   const element = elementAt(doc.body, path)
@@ -239,6 +612,90 @@ export function setElementSrc(
   image.setAttribute('style', 'width: 100%; height: 100%; object-fit: cover')
   element.textContent = ''
   element.appendChild(image)
+  return serialize(doc)
+}
+
+export interface PageHeadMeta {
+  lang: string
+  description: string
+  ogTitle: string
+  ogDescription: string
+  ogImage: string
+  favicon: string
+}
+
+/** Read SEO and document-head metadata from a page's HTML. */
+export function readPageHead(html: string): PageHeadMeta {
+  const doc = parsePage(html)
+  if (!doc) {
+    return { lang: '', description: '', ogTitle: '', ogDescription: '', ogImage: '', favicon: '' }
+  }
+  const metaContent = (selector: string): string =>
+    doc.head?.querySelector(selector)?.getAttribute('content')?.trim() ?? ''
+  return {
+    lang: doc.documentElement?.getAttribute('lang')?.trim() ?? '',
+    description: metaContent('meta[name="description" i]'),
+    ogTitle: metaContent('meta[property="og:title" i]'),
+    ogDescription: metaContent('meta[property="og:description" i]'),
+    ogImage: metaContent('meta[property="og:image" i]'),
+    favicon: doc.head?.querySelector('link[rel="icon" i], link[rel="shortcut icon" i]')?.getAttribute('href')?.trim() ?? '',
+  }
+}
+
+/** Update SEO and document-head metadata on a page's HTML safely. */
+export function updatePageHead(html: string, patch: Partial<PageHeadMeta>): string {
+  const doc = parsePage(html)
+  if (!doc?.head) return html
+
+  if (patch.lang !== undefined) {
+    const lang = patch.lang.trim()
+    if (lang) doc.documentElement.setAttribute('lang', lang)
+    else doc.documentElement.removeAttribute('lang')
+  }
+
+  const setMeta = (attr: 'name' | 'property', key: string, value: string | undefined): void => {
+    if (value === undefined) return
+    const trimmed = value.trim()
+    const existing = doc.head.querySelector(`meta[${attr}="${key}" i]`)
+    if (!trimmed) {
+      existing?.remove()
+      return
+    }
+    if (existing) {
+      existing.setAttribute('content', trimmed)
+    } else {
+      const meta = doc.createElement('meta')
+      meta.setAttribute(attr, key)
+      meta.setAttribute('content', trimmed)
+      doc.head.appendChild(meta)
+    }
+  }
+
+  setMeta('name', 'description', patch.description)
+  setMeta('property', 'og:title', patch.ogTitle)
+  setMeta('property', 'og:description', patch.ogDescription)
+  if (patch.ogImage !== undefined) {
+    const val = patch.ogImage.trim()
+    if (!val || isSafeUrlScheme(val)) setMeta('property', 'og:image', val)
+  }
+
+  if (patch.favicon !== undefined) {
+    const val = patch.favicon.trim()
+    const existing = doc.head.querySelector('link[rel="icon" i], link[rel="shortcut icon" i]')
+    if (!val) {
+      existing?.remove()
+    } else if (isSafeUrlScheme(val)) {
+      if (existing) {
+        existing.setAttribute('href', val)
+      } else {
+        const link = doc.createElement('link')
+        link.setAttribute('rel', 'icon')
+        link.setAttribute('href', val)
+        doc.head.appendChild(link)
+      }
+    }
+  }
+
   return serialize(doc)
 }
 

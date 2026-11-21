@@ -130,6 +130,16 @@ export function urlPathFor(page: string): string {
   return `/${page}`
 }
 
+/** Escape HTML special characters for safe interpolation in text or attribute values. */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /** The <title> of a page, which is also its name in the rail. */
 export function titleFromPage(html: string): string {
   const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
@@ -137,9 +147,9 @@ export function titleFromPage(html: string): string {
 }
 
 export function setPageTitle(html: string, title: string): string {
-  const safe = title.replace(/</g, '&lt;')
+  const safe = escapeHtml(title)
   if (/<title[^>]*>[\s\S]*?<\/title>/i.test(html)) {
-    return html.replace(/<title[^>]*>[\s\S]*?<\/title>/i, `<title>${safe}</title>`)
+    return html.replace(/<title[^>]*>[\s\S]*?<\/title>/i, () => `<title>${safe}</title>`)
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, match => `${match}\n    <title>${safe}</title>`)
@@ -162,18 +172,40 @@ export function relativePrefix(page: string): string {
 
 export function starterPageHtml(title: string, page = DEFAULT_HOME_PAGE): string {
   const up = relativePrefix(page)
+  const safe = escapeHtml(title)
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${title}</title>
+    <title>${safe}</title>
     <link rel="stylesheet" href="${up}${SITE_STYLESHEET}" />
   </head>
   <body>
     <main class="page">
-      <h1>${title}</h1>
+      <h1>${safe}</h1>
       <p>Write the page in HTML. Preview it as it will ship. Publish it.</p>
+    </main>
+  </body>
+</html>
+`
+}
+
+export function starter404Html(siteTitle = DEFAULT_SITE_TITLE): string {
+  const safeSite = escapeHtml(siteTitle)
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page not found · ${safeSite}</title>
+    <meta name="description" content="The page you asked for could not be found." />
+    <link rel="stylesheet" href="/${SITE_STYLESHEET}" />
+  </head>
+  <body>
+    <main class="page">
+      <h1>Page not found</h1>
+      <p>That address does not exist on this site. Head back to the <a href="/">home page</a>.</p>
     </main>
   </body>
 </html>
@@ -282,17 +314,27 @@ function parsePublished(raw: unknown): PublishedRecord | undefined {
   }
 }
 
-export function parseSiteManifest(text: string): SiteManifest {
+export function parseSiteManifest(
+  text: string,
+  options?: { strict?: boolean },
+): SiteManifest {
   const base = createDefaultSiteDocument().manifest
   try {
-    const parsed = JSON.parse(text) as Partial<SiteManifest>
+    const raw: unknown = JSON.parse(text)
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      if (options?.strict) {
+        throw new Error('site.json must be a JSON object. Keep the file and repair it before reopening the site.')
+      }
+      return base
+    }
+    const parsed = raw as Partial<SiteManifest>
     const goal = typeof parsed.goal === 'string' ? parsed.goal : undefined
     const published = parsePublished(parsed.published)
     const brand = parseSiteBrand(parsed.brand)
     return {
       title: typeof parsed.title === 'string' ? parsed.title : base.title,
       pages: Array.isArray(parsed.pages)
-        ? parsed.pages.filter((page): page is string => typeof page === 'string')
+        ? [...new Set(parsed.pages.filter((page): page is string => typeof page === 'string'))]
         : base.pages,
       target:
         parsed.target === 'vps-git' || parsed.target === 'container'
@@ -318,7 +360,12 @@ export function parseSiteManifest(text: string): SiteManifest {
       ...(brand ? { brand } : {}),
       ...(published ? { published } : {}),
     }
-  } catch {
+  } catch (error) {
+    if (options?.strict) {
+      throw new Error(
+        `site.json could not be parsed (${error instanceof Error ? error.message : String(error)}). Keep the file and repair it before reopening the site.`,
+      )
+    }
     return base
   }
 }
@@ -336,10 +383,19 @@ export function serializeSiteManifest(manifest: SiteManifest): string {
  */
 export function orderedPages(document: SiteDocument): SitePage[] {
   const present = Object.keys(document.pages)
-  const ordered = [
-    ...document.manifest.pages.filter(page => present.includes(page)),
-    ...present.filter(page => !document.manifest.pages.includes(page)).sort(),
-  ]
+  const presentSet = new Set(present)
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const page of document.manifest.pages) {
+    if (presentSet.has(page) && !seen.has(page)) {
+      seen.add(page)
+      ordered.push(page)
+    }
+  }
+  for (const page of present.filter(p => !seen.has(p)).sort()) {
+    seen.add(page)
+    ordered.push(page)
+  }
   return ordered.map(path => {
     const title = titleFromPage(document.pages[path] ?? '')
     return { path, title: title || path, label: title || path }

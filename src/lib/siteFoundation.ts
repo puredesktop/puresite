@@ -79,7 +79,7 @@ const SAFE_DEFAULTS = `:where(*, *::before, *::after) { box-sizing: border-box; 
   :where(details.site-menu) { margin-inline-start: auto; }
   :where(details.site-menu[open]) { flex-basis: 100%; margin-inline-start: 0; }
   :where(.site-header .button, .site-header .btn) { padding: 10px 14px; font-size: var(--step--1); }
-  :where(.brand small, .site-header small) { white-space: nowrap; font-size: 9px; letter-spacing: 0.12em; }
+  :where(.brand small, .site-header small) { white-space: nowrap; font-size: var(--step--1); letter-spacing: 0.12em; }
 }`
 
 export interface SiteHeaderLink {

@@ -12,7 +12,13 @@
  * so another host that speaks the same three steps needs no code.
  */
 import { fetchJson, fetchRaw } from '../bridge/platformBridge'
-import { endpointUrl, type PublishService } from './publishServices'
+import {
+  endpointUrl,
+  isLoopbackHost,
+  isSafeHttpUrl,
+  validatePublishUrl,
+  type PublishService,
+} from './publishServices'
 
 export interface PublishFile {
   path: string
@@ -133,8 +139,12 @@ export async function publishSite(
     ...(options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {}),
   }
 
+  const declareUrl = endpointUrl(declareTo, options.existing?.slug)
+  const declareParsed = validatePublishUrl(declareUrl, { allowLocalHttp: false })
+  const allowTargetLoopback = isLoopbackHost(declareParsed.hostname)
+
   const created = (await fetchJson({
-    url: endpointUrl(declareTo, options.existing?.slug),
+    url: declareUrl,
     method: declareTo.method || (creating ? 'POST' : 'PUT'),
     headers,
     body: {
@@ -174,6 +184,7 @@ export async function publishSite(
     check()
     const file = byPath.get(target.path)
     if (!file) continue
+    validatePublishUrl(target.url, { allowLocalHttp: allowTargetLoopback })
     onProgress?.({
       step: 'uploading',
       uploaded,
@@ -210,6 +221,12 @@ export async function publishSite(
       `${service.name} did not say how to make the version live — no finalize URL in its response or its tool.`,
     )
   }
+  const finalizeParsed = validatePublishUrl(finalizeUrl, { allowLocalHttp: false })
+  if (finalizeParsed.origin !== declareParsed.origin) {
+    throw new Error(
+      `Refusing to send credentials to a different origin (${finalizeParsed.origin} !== ${declareParsed.origin}).`,
+    )
+  }
   const live = (await fetchJson({
     url: finalizeUrl,
     method: upload.finalizeUrl ? 'POST' : finalize?.method || 'POST',
@@ -222,13 +239,20 @@ export async function publishSite(
     },
   })) as { siteUrl?: string }
 
+  const rawSiteUrl = live.siteUrl ?? created.siteUrl ?? ''
+  const siteUrl = rawSiteUrl && isSafeHttpUrl(rawSiteUrl) ? rawSiteUrl : ''
+  const claimUrl =
+    created.claimUrl && isSafeHttpUrl(created.claimUrl)
+      ? created.claimUrl
+      : undefined
+
   const result: PublishResult = {
     slug,
-    siteUrl: live.siteUrl ?? created.siteUrl ?? '',
+    siteUrl,
     // Returned exactly once by the service. It is carried through verbatim
     // and shown in full — a claim link with anything trimmed out of it does
     // not work, and there is no second copy to fall back on.
-    ...(created.claimUrl ? { claimUrl: created.claimUrl } : {}),
+    ...(claimUrl ? { claimUrl } : {}),
     ...(created.claimToken ? { claimToken: created.claimToken } : {}),
     skipped: upload.skipped?.length ?? 0,
     uploaded,

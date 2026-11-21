@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { styled } from 'styled-components'
+import { agentsOffered } from '@purescience/platform-ui/bridge/workspace'
 import { siteLinkTheme } from './siteLinkTheme'
 import type { PromisedPage, SiteLinkGraph } from '../lib/siteLinks'
 import { urlPathFor, type SiteDocument } from '../lib/siteDocument'
@@ -50,10 +51,14 @@ export function WorkList({
   }, [onClose])
 
   const home = siteDocument.manifest.pages[0]
+  const agents = agentsOffered()
+  const usableMaterial = material.filter(item => item.role !== 'reference')
   /** Which missing file the person is choosing a replacement for. */
   const [replacing, setReplacing] = useState<string | null>(null)
   const missingFile = (message: string): string =>
-    message.match(/assets\/([^\s,]+)/)?.[1] ?? ''
+    message.match(/references\s+(?:assets\/)?(.+?),\s+which is/)?.[1] ??
+    message.match(/assets\/([^\s,]+)/)?.[1] ??
+    ''
   const breaking = findings.filter(finding => finding.severity === 'error')
   const warnings = findings.filter(
     finding => finding.severity === 'warning' && finding.code !== 'promised-page',
@@ -101,7 +106,7 @@ export function WorkList({
                 <span className="name">Promised by a link</span>
                 <span className="count">{graph.promised.length}</span>
                 <span style={{ flex: 1 }} />
-                {graph.promised.length > 1 ? (
+                {agents && graph.promised.length > 1 ? (
                   <Quiet as="button" type="button" onClick={() => onBuildAll(graph.promised)}>
                     Build them all as drafts
                   </Quiet>
@@ -116,9 +121,11 @@ export function WorkList({
                     </span>
                   </div>
                   <span className="path">{urlPathFor(promise.path)}</span>
-                  <Primary type="button" onClick={() => onBuild(promise)}>
-                    Build
-                  </Primary>
+                  {agents ? (
+                    <Primary type="button" onClick={() => onBuild(promise)}>
+                      Build
+                    </Primary>
+                  ) : null}
                 </Row>
               ))}
             </>
@@ -143,7 +150,7 @@ export function WorkList({
                       <Button type="button" onClick={onAddFiles}>
                         Add the file
                       </Button>
-                      {material.length ? (
+                      {usableMaterial.length ? (
                         <Button
                           type="button"
                           onClick={() =>
@@ -166,7 +173,7 @@ export function WorkList({
                   ) : null}
                   {replacing && replacing === missingFile(finding.message) ? (
                     <Choices>
-                      {material.map(item => (
+                      {usableMaterial.map(item => (
                         <Button
                           key={item.name}
                           type="button"

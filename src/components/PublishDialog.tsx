@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { styled } from 'styled-components'
 import { hasBlockingFinding, type BuildResult, type CheckFinding } from '../lib/buildSite'
 import { APP_ACCENT } from '../constants'
-import type { PublishService } from '../lib/publishServices'
+import { isSafeHttpUrl, type PublishService } from '../lib/publishServices'
 import type { PublishResult } from '../lib/publish'
 import { verificationBadge, type SiteVerification } from '../lib/siteVerification'
 import { cloudOffered, cloudPreview, cloudPublish, cloudSites, siteFor, type CloudSite } from '../lib/cloudPublish'
@@ -81,6 +81,10 @@ export function PublishDialog({
   onSend,
   onStop,
   onOpenUrl,
+  onRevealBuild,
+  onExportStaticSite,
+  has404 = true,
+  onAdd404Page,
   onClose,
   cloud,
 }: {
@@ -107,6 +111,14 @@ export function PublishDialog({
   onStop: () => void
   /** Open a URL in the real browser, through the shell. */
   onOpenUrl: (url: string) => void
+  /** Reveal build/ in the OS file manager. */
+  onRevealBuild?: () => void
+  /** Copy the built static site folder into a user-chosen destination. */
+  onExportStaticSite?: () => void
+  /** Whether the site already has a 404.html page. */
+  has404?: boolean
+  /** Create a starter 404.html page. */
+  onAdd404Page?: () => void
   onClose: () => void
   /** The package and how to save it first, for publishing to the organisation's site on PureCloud. */
   cloud?: { root: string | null; prepare: () => Promise<void> }
@@ -122,6 +134,22 @@ export function PublishDialog({
     [findings],
   )
 
+  useEffect(() => {
+    setClaimCopied(false)
+  }, [open, state.live?.claimUrl])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
   if (!open) return null
 
   const service = services.find(option => option.id === serviceId) ?? services[0]
@@ -129,10 +157,12 @@ export function PublishDialog({
     tool => !services.some(service => service.id === tool.id),
   )
   const busy = state.phase === 'building' || state.phase === 'sending'
+  const safeSiteUrl = state.live?.siteUrl && isSafeHttpUrl(state.live.siteUrl) ? state.live.siteUrl : null
+  const safeClaimUrl = state.live?.claimUrl && isSafeHttpUrl(state.live.claimUrl) ? state.live.claimUrl : null
 
   return (
-    <Scrim>
-      <Dialog>
+    <Scrim onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+      <Dialog role="dialog" aria-modal="true" aria-label="Publish">
         <Head>
           <Title>Publish</Title>
           <span style={{ flex: 1 }} />
@@ -143,7 +173,7 @@ export function PublishDialog({
           <CloudSection
             root={cloud.root}
             prepare={cloud.prepare}
-            blocked={errors.length > 0 || verification.state === 'failed'}
+            blocked={errors.length > 0 || verification.state !== 'verified'}
             onOpenUrl={onOpenUrl}
           />
         ) : null}
@@ -243,6 +273,14 @@ export function PublishDialog({
               knowing, not blocking
             </Mono>
           ) : null}
+          {!has404 && onAdd404Page ? (
+            <CloudRow>
+              <Mono>No 404.html page yet for missing addresses.</Mono>
+              <GhostButton type="button" onClick={onAdd404Page}>
+                Add 404.html starter
+              </GhostButton>
+            </CloudRow>
+          ) : null}
         </Section>
 
         <Section>
@@ -296,6 +334,20 @@ export function PublishDialog({
                 that no page uses
               </Mono>
             ) : null}
+            {buildPath && (onRevealBuild || onExportStaticSite) ? (
+              <CloudRow>
+                {onRevealBuild ? (
+                  <GhostButton type="button" onClick={onRevealBuild}>
+                    Reveal build/ folder
+                  </GhostButton>
+                ) : null}
+                {onExportStaticSite ? (
+                  <GhostButton type="button" onClick={onExportStaticSite}>
+                    Export static site…
+                  </GhostButton>
+                ) : null}
+              </CloudRow>
+            ) : null}
           </Section>
         ) : null}
 
@@ -307,15 +359,19 @@ export function PublishDialog({
                 Not a plain link: the app lives in a sandboxed frame where
                 `target="_blank"` goes nowhere, so the shell opens the browser.
               */}
-              <LiveLink
-                href={state.live.siteUrl}
-                onClick={event => {
-                  event.preventDefault()
-                  if (state.live) onOpenUrl(state.live.siteUrl)
-                }}
-              >
-                {state.live.siteUrl}
-              </LiveLink>
+              {safeSiteUrl ? (
+                <LiveLink
+                  href={safeSiteUrl}
+                  onClick={event => {
+                    event.preventDefault()
+                    onOpenUrl(safeSiteUrl)
+                  }}
+                >
+                  {safeSiteUrl}
+                </LiveLink>
+              ) : (
+                <span>{state.live.siteUrl || 'Published'}</span>
+              )}
             </Summary>
             <Mono>
               {state.live.uploaded} uploaded
@@ -326,10 +382,10 @@ export function PublishDialog({
               and a claim link with any part trimmed does not work — so it is
               shown whole, and never shortened.
             */}
-            {state.live.claimUrl ? (
+            {safeClaimUrl ? (
               <Claim>
                 <strong>Keep this link — it is shown once.</strong>
-                <ClaimUrl>{state.live.claimUrl}</ClaimUrl>
+                <ClaimUrl>{safeClaimUrl}</ClaimUrl>
                 <span>
                   It is how you claim this site. Without it the site expires in
                   24 hours and cannot be recovered.
@@ -338,9 +394,7 @@ export function PublishDialog({
                   <GhostButton
                     type="button"
                     onClick={() => {
-                      const url = state.live?.claimUrl
-                      if (!url) return
-                      void copyToClipboard(url).then(setClaimCopied)
+                      void copyToClipboard(safeClaimUrl).then(setClaimCopied)
                     }}
                   >
                     {claimCopied ? 'Copied' : 'Copy the claim link'}
@@ -496,7 +550,17 @@ function CloudSection({ root, prepare, blocked, onOpenUrl }: {
           {said ? (
             <Finding $error={!!said.error}>
               <strong>{said.text}</strong>
-              {said.url ? <LiveLink href={said.url} onClick={event => { event.preventDefault(); onOpenUrl(said.url!) }}>{said.url}</LiveLink> : null}
+              {said.url && isSafeHttpUrl(said.url) ? (
+                <LiveLink
+                  href={said.url}
+                  onClick={event => {
+                    event.preventDefault()
+                    if (said.url && isSafeHttpUrl(said.url)) onOpenUrl(said.url)
+                  }}
+                >
+                  {said.url}
+                </LiveLink>
+              ) : null}
             </Finding>
           ) : null}
         </>
@@ -516,7 +580,7 @@ const CloudRow = styled.div`
 const Scrim = styled.div`
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--platform-z-index-zi-app-modal, 40);
   display: grid;
   place-items: center;
   background: rgb(12 12 14 / 0.5);
@@ -577,8 +641,18 @@ const Finding = styled.div<{ $error: boolean }>`
   border-radius: 0;
   font-size: 12.5px;
   line-height: 1.45;
-  background: var(--platform-colors-danger-surface, rgb(180 52 14 / 0.1));
-  color: var(--platform-colors-danger, #b4340e);
+  background: ${props =>
+    props.$error
+      ? 'var(--platform-colors-danger-surface, rgb(180 52 14 / 0.1))'
+      : 'var(--pure-chrome-well, rgb(16 124 65 / 0.08))'};
+  color: ${props =>
+    props.$error
+      ? 'var(--platform-colors-danger, #b4340e)'
+      : 'var(--platform-colors-text, #16181d)'};
+  border: 1px solid ${props =>
+    props.$error
+      ? 'color-mix(in srgb, var(--platform-colors-danger, #b4340e) 30%, transparent)'
+      : 'var(--platform-colors-border, #d0d7de)'};
 
   strong {
     font-weight: 600;

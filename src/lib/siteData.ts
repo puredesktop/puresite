@@ -18,6 +18,23 @@
  * the ones already stored.
  */
 
+import { escapeHtml } from './siteDocument'
+
+const VALID_ACCESS: readonly AccessLevel[] = ['public', 'owner', 'none']
+
+function safeScriptJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+}
+
+function safeSingleQuotedJs(value: string): string {
+  return `'${safeScriptJson(value).slice(1, -1).replace(/'/g, "\\'")}'`
+}
+
 /** Types every provider is expected to understand. */
 export const FIELD_TYPES = [
   'string',
@@ -211,7 +228,30 @@ export function checkCollections(collections: Collection[]): DataFinding[] {
           collection: where,
         })
       }
+      if (!(FIELD_TYPES as readonly string[]).includes(String(field.type))) {
+        findings.push({
+          severity: 'error',
+          code: 'bad-field-type',
+          message: `"${String(field.type)}" on "${field.name}" in ${collection.name} is not a valid field type`,
+          fix: `use one of ${FIELD_TYPES.join(', ')}`,
+          collection: where,
+        })
+      }
       fieldNames.add(field.name)
+    }
+
+    const access = collection.access as unknown as Record<string, unknown> | undefined
+    for (const action of ['read', 'insert', 'update', 'delete'] as const) {
+      const value = access?.[action]
+      if (!VALID_ACCESS.includes(value as AccessLevel)) {
+        findings.push({
+          severity: 'error',
+          code: 'bad-access',
+          message: `access.${action} on "${collection.name}" must be public, owner or none`,
+          fix: `set access.${action} to public, owner or none`,
+          collection: where,
+        })
+      }
     }
 
     if (collection.rateLimit && !/^\d+\/(hour|minute)\/ip$/.test(collection.rateLimit)) {
@@ -378,17 +418,25 @@ export function formSnippetFor(
               : field.type === 'boolean'
                 ? 'checkbox'
                 : 'text'
-    const label = field.name.replace(/_/g, ' ')
-    const cap = field.maxLength ? ` maxlength="${field.maxLength}"` : ''
+    const safeName = escapeHtml(field.name)
+    const label = escapeHtml(field.name.replace(/_/g, ' '))
+    const cap =
+      typeof field.maxLength === 'number' && Number.isFinite(field.maxLength)
+        ? ` maxlength="${field.maxLength}"`
+        : ''
     const step = field.type === 'integer' ? ' step="1"' : ''
     const bounds = [
-      field.minimum !== undefined ? ` min="${field.minimum}"` : '',
-      field.maximum !== undefined ? ` max="${field.maximum}"` : '',
+      typeof field.minimum === 'number' && Number.isFinite(field.minimum)
+        ? ` min="${field.minimum}"`
+        : '',
+      typeof field.maximum === 'number' && Number.isFinite(field.maximum)
+        ? ` max="${field.maximum}"`
+        : '',
     ].join('')
     if (field.maxLength && field.maxLength > 200 && field.type === 'string') {
-      return `      <label>${label}\n        <textarea name="${field.name}"${required}${cap}></textarea>\n      </label>`
+      return `      <label>${label}\n        <textarea name="${safeName}"${required}${cap}></textarea>\n      </label>`
     }
-    return `      <label>${label}\n        <input type="${type}" name="${field.name}"${required}${cap}${step}${bounds} />\n      </label>`
+    return `      <label>${label}\n        <input type="${type}" name="${safeName}"${required}${cap}${step}${bounds} />\n      </label>`
   }
 
   const numeric = collection.fields
@@ -398,7 +446,7 @@ export function formSnippetFor(
     .filter(field => field.type === 'boolean')
     .map(field => field.name)
 
-  return `<form class="site-data-form" data-collection="${collection.name}">
+  return `<form class="site-data-form" data-collection="${escapeHtml(collection.name)}">
   <fieldset>
 ${collection.fields.map(inputFor).join('\n')}
   </fieldset>
@@ -412,8 +460,8 @@ ${collection.fields.map(inputFor).join('\n')}
     while (form && form.tagName !== 'FORM') form = form.previousElementSibling;
     if (!form) return;
     var status = form.querySelector('.site-data-status');
-    var numeric = ${JSON.stringify(numeric)};
-    var booleans = ${JSON.stringify(booleans)};
+    var numeric = ${safeScriptJson(numeric)};
+    var booleans = ${safeScriptJson(booleans)};
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       var record = {};
@@ -425,7 +473,7 @@ ${collection.fields.map(inputFor).join('\n')}
         if (record[name] !== undefined && record[name] !== '') record[name] = Number(record[name]);
       });
       status.textContent = 'Sending…';
-      fetch('${provider.submitPath(collection.name)}', {
+      fetch(${safeSingleQuotedJs(provider.submitPath(collection.name))}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(record)

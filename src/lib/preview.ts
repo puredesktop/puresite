@@ -25,20 +25,19 @@ import { isAssetReference, localAssetReferences, mapCssUrls, mapSrcset, resolveP
 export { resolvePagePath } from './siteReferences'
 import { SITE_FONT_URLS } from '../fonts/siteFonts'
 import { DEFAULT_HOME_PAGE, MAX_INLINE_BYTES, SITE_STYLESHEET } from '../constants'
-import { relativePrefix } from './siteDocument'
+import { escapeHtml, relativePrefix } from './siteDocument'
 
 /**
  * Asset references anywhere they can legally appear.
  *
  * `src=`/`href=` in markup, and `url()` in CSS, each with any depth of `../`
- * prefix or a root-relative slash, because a page in a subfolder reaches its assets that way and those
- * pages are exactly the ones a naive rewrite leaves broken.
+ * prefix, `./` prefix, or a root-relative slash, because a page in a subfolder
+ * reaches its assets that way and those pages are exactly the ones a naive rewrite leaves broken.
  */
-const ASSET_ATTR = /(src|href|poster)=("|')((?:\.\.\/)*|\/)assets\/([^"']+)\2/g
+const ASSET_ATTR = /\b(src|href|poster)=("|')((?:\.\.\/|\.\/)*|\/)assets\/([^"']+)\2/gi
 const ASSET_SRCSET = /\bsrcset=("|')([^"']*)\1/gi
 const LINK_TAG = /<link\b[^>]*>/gi
-const DATA_ATTR = /(src|href|poster)=("|')(data:[^"']+)\2/g
-const DATA_CSS = /url\((?:"|')?(data:[^"')]+)(?:"|')?\)/g
+const DATA_ATTR = /\b(src|href|poster)=("|')(data:[^"']+)\2/gi
 
 export interface PreviewInput {
   html: string
@@ -103,29 +102,39 @@ export function stylesheetLinkState(html: string, page: string): StylesheetLinkS
   return state
 }
 
-/** Asset lookups strip URL query/fragment syntax and decode filenames as the host does. */
-function assetName(reference: string): string {
-  return resolvePagePath(DEFAULT_HOME_PAGE, `assets/${reference}`)?.replace(/^assets\//, '') ?? reference
-}
-
-function inlineAsset(reference: string, assets: Record<string, string>): string | undefined {
-  const data = assets[assetName(reference)]
-  const fragment = reference.includes('#') ? reference.slice(reference.indexOf('#')) : ''
+function inlineAssetFrom(fromFile: string, href: string, assets: Record<string, string>): string | undefined {
+  const path = resolvePagePath(fromFile, href)
+  if (!path?.startsWith('assets/')) return undefined
+  const data = assets[path.slice('assets/'.length)]
+  const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : ''
   return data ? data + fragment : undefined
 }
 
-function inlineBudget(html: string, assets: Record<string, string>): number {
+function pageAssetNames(html: string, styles: string, page: string): string[] {
+  const names = new Set(referencedAssets(html, page))
+  if (stylesheetLinkState(html, page).linked) {
+    for (const name of referencedAssets(styles, SITE_STYLESHEET)) names.add(name)
+  }
+  return [...names]
+}
+
+function inlineBudgetFor(names: string[], assets: Record<string, string>): number {
   let bytes = 0
-  for (const name of referencedAssets(html)) bytes += assets[name]?.length ?? 0
+  for (const name of names) bytes += assets[name]?.length ?? 0
   return bytes
 }
 
+function escapeStyleBody(styles: string): string {
+  return styles.replace(/<\/(style)/gi, '<\\/$1')
+}
+
 function inlineStyles(html: string, styles: string, page: string): string {
+  const safeStyles = escapeStyleBody(styles)
   return html.replace(LINK_TAG, tag => {
     if (!/\brel=("|')stylesheet\1/i.test(tag)) return tag
     const href = attribute(tag, 'href')
     return href && resolvePagePath(page, href) === SITE_STYLESHEET
-      ? `<style>\n${styles}\n</style>` : tag
+      ? `<style>\n${safeStyles}\n</style>` : tag
   })
 }
 
@@ -141,10 +150,10 @@ export function oversizeAssets(
   styles = '',
   page = DEFAULT_HOME_PAGE,
 ): { names: string[]; bytes: number } | null {
-  const rendered = inlineStyles(html, styles, page)
-  const bytes = inlineBudget(rendered, assets)
+  const referenced = pageAssetNames(html, styles, page)
+  const bytes = inlineBudgetFor(referenced, assets)
   if (bytes <= MAX_INLINE_BYTES) return null
-  const names = referencedAssets(rendered).filter(name => assets[name])
+  const names = referenced.filter(name => assets[name])
   return { names, bytes }
 }
 
@@ -163,42 +172,43 @@ export function previewDocument({
 }: PreviewInput): string {
   // The bundled faces are always there to show, read from the app rather than the package.
   assets = { ...SITE_FONT_URLS, ...assets }
-  let out = inlineStyles(html, styles, page)
-  const affordable = inlineBudget(out, assets) <= MAX_INLINE_BYTES
+  const referenced = pageAssetNames(html, styles, page)
+  const affordable = inlineBudgetFor(referenced, assets) <= MAX_INLINE_BYTES
+
+  let out = html
+  let stylesToInline = styles
+
+  if (affordable) {
+    out = out.replace(ASSET_ATTR, (match, attr, quote, prefix, name) => {
+      const data = inlineAssetFrom(page, `${prefix}assets/${name}`, assets)
+      return data ? `${attr}=${quote}${data}${quote}` : match
+    })
+    out = out.replace(ASSET_SRCSET, (_match, quote, value) => {
+      const mapped = mapSrcset(value, href => inlineAssetFrom(page, href, assets) ?? href)
+      return `srcset=${quote}${mapped}${quote}`
+    })
+    const mapPageStyleBlock = (source: string): string =>
+      mapCssUrls(source, href => inlineAssetFrom(page, href, assets) ?? href, { quote: '"' })
+    const mapInlineStyleAttr = (source: string, attrQuote: '"' | "'"): string =>
+      mapCssUrls(source, href => inlineAssetFrom(page, href, assets) ?? href, { quote: 'auto', attrQuote })
+    out = out.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+      (_whole, open, body, close) => open + mapPageStyleBlock(body) + close)
+    out = out.replace(/(\bstyle\s*=\s*)("|')([\s\S]*?)\2/gi,
+      (_whole, attributePrefix, quote, value) =>
+        attributePrefix + quote + mapInlineStyleAttr(value, quote as '"' | "'") + quote)
+    // Resolve styles/site.css URLs against SITE_STYLESHEET BEFORE inlining into <style>.
+    stylesToInline = mapCssUrls(
+      styles,
+      href => inlineAssetFrom(SITE_STYLESHEET, href, assets) ?? href,
+      { quote: '"' },
+    )
+  }
 
   // Only a link that resolves to the stylesheet becomes the stylesheet. One
   // that resolves elsewhere is left as it is and 404s in the frame, which is
   // what it does on the host.
+  out = inlineStyles(out, stylesToInline, page)
   if (knownPages) out = markLinks(out, page, knownPages)
-
-  if (affordable) {
-    out = out.replace(ASSET_ATTR, (match, attr, quote, _up, name) => {
-      const data = inlineAsset(name, assets)
-      return data ? `${attr}=${quote}${data}${quote}` : match
-    })
-    out = out.replace(ASSET_SRCSET, (match, quote, value) => {
-      const mapped = mapSrcset(value, href => {
-        const path = resolvePagePath(page, href)
-        if (!path?.startsWith('assets/')) return href
-        const data = assets[path.slice('assets/'.length)]
-        const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : ''
-        return data ? data + fragment : href
-      })
-      return `srcset=${quote}${mapped}${quote}`
-    })
-    const css = (source: string): string => mapCssUrls(source, href => {
-      const path = resolvePagePath(DEFAULT_HOME_PAGE, href)
-      if (!path?.startsWith('assets/')) return href
-      const data = assets[path.slice('assets/'.length)]
-      const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : ''
-      return data ? data + fragment : href
-    })
-    out = out.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
-      (_whole, open, body, close) => open + css(body) + close)
-    out = out.replace(/(\bstyle\s*=\s*)("|')([\s\S]*?)\2/gi,
-      (_whole, attribute, quote, value) => attribute + quote + css(value) + quote)
-
-  }
 
   return out
 }
@@ -220,7 +230,7 @@ function markLinks(html: string, page: string, knownPages: string[]): string {
     const target = resolvePagePath(page, href)
     if (!target) return tag
     const state = known.has(target) ? 'built' : 'promised'
-    return `<a${attrs} data-site-link="${target}" data-site-state="${state}">`
+    return `<a${attrs} data-site-link="${escapeHtml(target)}" data-site-state="${state}">`
   })
 }
 
@@ -243,15 +253,47 @@ export function deinlineMarkup(
   for (const [name, data] of Object.entries(assets)) names.set(data, name)
   if (!names.size) return markup
   const up = relativePrefix(page)
+  const lookup = (dataUrl: string): string | null => {
+    const unescaped = dataUrl
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&amp;/gi, '&')
+    const hashAt = unescaped.indexOf('#')
+    const base = hashAt >= 0 ? unescaped.slice(0, hashAt) : unescaped
+    const fragment = hashAt >= 0 ? unescaped.slice(hashAt) : ''
+    const name = names.get(base)
+    return name ? `${up}assets/${name}${fragment}` : null
+  }
   let out = markup.replace(DATA_ATTR, (match, attr, quote, data) => {
-    const name = names.get(data)
-    return name ? `${attr}=${quote}${up}assets/${name}${quote}` : match
+    const restored = lookup(data)
+    return restored ? `${attr}=${quote}${restored}${quote}` : match
   })
-  out = out.replace(DATA_CSS, (match, data) => {
-    const name = names.get(data)
-    return name ? `url(${up}assets/${name})` : match
-  })
+  const restoreCss = (source: string, attrQuote?: '"' | "'"): string =>
+    mapCssUrls(
+      source,
+      href => (href.startsWith('data:') ? lookup(href) ?? href : href),
+      { quote: 'auto', ...(attrQuote ? { attrQuote } : {}) },
+    )
+  out = out.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+    (_whole, open: string, body: string, close: string) => open + restoreCss(body) + close)
+  out = out.replace(/(\bstyle\s*=\s*)("|')([\s\S]*?)\2/gi,
+    (_whole, attrPrefix: string, quote: string, value: string) =>
+      attrPrefix + quote + restoreCss(value, quote as '"' | "'") + quote)
   return out
+}
+
+/**
+ * Prepare externally fetched live HTML for previewing inside a sandboxed frame:
+ * preserves its own `<link rel="stylesheet">` tags and injects `<base href>` so
+ * relative CSS, fonts, and images resolve against the live origin.
+ */
+export function livePreviewDocument(html: string, liveUrl: string): string {
+  const withoutBase = html.replace(/<base\b[^>]*>/gi, '')
+  const baseTag = `<base href="${escapeHtml(liveUrl)}" />`
+  if (/<head\b[^>]*>/i.test(withoutBase)) {
+    return withoutBase.replace(/<head\b[^>]*>/i, match => `${match}\n${baseTag}`)
+  }
+  return `${baseTag}\n${withoutBase}`
 }
 
 /**

@@ -35,6 +35,7 @@ export function SiteMapOverlay({
   onOpenPage,
   onOpenPromise,
   onAddPage,
+  onAdd404Page,
   onSetGoal,
   onClose,
 }: {
@@ -58,6 +59,8 @@ export function SiteMapOverlay({
   onOpenPromise: (promise: PromisedPage) => void
   /** A page nothing asked for yet — rare, but the way to start an island. */
   onAddPage: () => void
+  /** Add a starter 404.html page. */
+  onAdd404Page?: () => void
   /** Name the page the site is for, which is what Journeys measures against. */
   onSetGoal: (page: string | null) => void
   onClose: () => void
@@ -280,14 +283,14 @@ export function SiteMapOverlay({
         >
           <Zoomed style={{ transform: `scale(${zoom})` }}>
           <svg viewBox={`0 0 ${box.width} ${box.height}`} aria-hidden="true">
-            {map.edges.map(edge => {
+            {map.edges.map((edge, edgeIndex) => {
               const from = at.get(edge.from)
               const to = at.get(edge.to)
               if (!from || !to) return null
               const lit = hovered === edge.from || hovered === edge.to
               return (
                 <line
-                  key={`${edge.from}|${edge.to}`}
+                  key={`${edge.from}|${edge.to}|${edgeIndex}`}
                   x1={from.x}
                   y1={from.y}
                   x2={to.x}
@@ -304,64 +307,60 @@ export function SiteMapOverlay({
           </svg>
 
           {map.nodes.map(node => (
-            <Node
+            <NodeWrap
               key={node.path}
-              {...pageRefs(node.path, label(node), siteDocument.manifest.pages.indexOf(node.path))}
-              type="button"
               style={{ left: node.x, top: node.y }}
-              $kind={node.kind}
-              $state={node.kind === 'promised' ? 'same' : publishState(node.path)}
-              $trouble={lens !== 'structure' && troubled(node.path)}
-              $here={node.path === selectedPage}
-              $home={node.depth === 0}
               onMouseEnter={() => setHovered(node.path)}
               onMouseLeave={() => setHovered(current => (current === node.path ? null : current))}
-              $dim={!matches(node)}
-              onClick={() => open(node)}
-              title={
-                node.kind === 'promised'
-                  ? `${node.path} — promised by a link, not built`
-                  : node.path
-              }
             >
+              <Node
+                {...pageRefs(node.path, label(node), siteDocument.manifest.pages.indexOf(node.path))}
+                type="button"
+                $kind={node.kind}
+                $state={node.kind === 'promised' ? 'same' : publishState(node.path)}
+                $trouble={lens !== 'structure' && troubled(node.path)}
+                $here={node.path === selectedPage}
+                $home={node.depth === 0}
+                $dim={!matches(node)}
+                onClick={() => open(node)}
+                title={
+                  node.kind === 'promised'
+                    ? `${node.path} — promised by a link, not built`
+                    : node.path
+                }
+              >
+                {thumbnails && node.kind !== 'promised' ? (
+                  <Thumb>
+                    <PageFrame
+                      html={siteDocument.pages[node.path] ?? ''}
+                      styles={siteDocument.styles}
+                      assets={previews}
+                      page={node.path}
+                      width={1100}
+                      height={700}
+                      scale={THUMB_WIDTH / 1100}
+                    />
+                  </Thumb>
+                ) : null}
+                <span className="name">{label(node)}</span>
+                <span className="path">
+                  {lens === 'structure' ? urlPathFor(node.path) : noteFor(node.path) || urlPathFor(node.path)}
+                </span>
+              </Node>
               {node.kind === 'promised' ? null : (
                 <Tick
-                  as="span"
+                  type="button"
                   role="checkbox"
                   aria-checked={chosen.has(node.path)}
                   aria-label={`Change ${label(node)} together with others`}
-                  tabIndex={0}
                   $on={chosen.has(node.path)}
                   onClick={event => {
                     event.stopPropagation()
                     onChoosePage(node.path)
                   }}
-                  onKeyDown={event => {
-                    if (event.key !== 'Enter' && event.key !== ' ') return
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onChoosePage(node.path)
-                  }}
                 />
               )}
-              {thumbnails && node.kind !== 'promised' ? (
-                <Thumb>
-                  <PageFrame
-                    html={siteDocument.pages[node.path] ?? ''}
-                    styles={siteDocument.styles}
-                    assets={previews}
-                    page={node.path}
-                    width={1100}
-                    height={700}
-                    scale={THUMB_WIDTH / 1100}
-                  />
-                </Thumb>
-              ) : null}
-              <span className="name">{label(node)}</span>
-              <span className="path">
-                {lens === 'structure' ? urlPathFor(node.path) : noteFor(node.path) || urlPathFor(node.path)}
-              </span>
-            </Node>
+            </NodeWrap>
           ))}
           </Zoomed>
           <Zoom>
@@ -410,6 +409,11 @@ export function SiteMapOverlay({
         <Foot>
           <span>Click a page to open it. Click a promise to build it.</span>
           <span style={{ flex: 1 }} />
+          {!siteDocument.pages['404.html'] && onAdd404Page ? (
+            <Add type="button" onClick={onAdd404Page}>
+              Add 404.html
+            </Add>
+          ) : null}
           <Add type="button" onClick={onAddPage}>
             New page
           </Add>
@@ -458,12 +462,13 @@ const Sub = styled.div`
   color: var(--platform-colors-text-secondary);
 `
 /** The tick that puts a page in the scope a request applies to. */
-const Tick = styled.span<{ $on: boolean }>`
+const Tick = styled.button<{ $on: boolean }>`
   position: absolute;
   top: 6px;
   right: 6px;
   width: 14px;
   height: 14px;
+  padding: 0;
   border-radius: var(--pure-chrome-radius, 3px);
   cursor: pointer;
   border: 1px solid
@@ -661,6 +666,10 @@ const Zoom = styled.div`
     text-align: center;
   }
 `
+const NodeWrap = styled.div`
+  position: absolute;
+  transform: translate(-50%, -50%);
+`
 const Node = styled.button<{
   $kind: string
   $here: boolean
@@ -669,8 +678,7 @@ const Node = styled.button<{
   $state: string
   $trouble: boolean
 }>`
-  position: absolute;
-  transform: translate(-50%, -50%);
+  position: relative;
   max-width: 168px;
   display: flex;
   flex-direction: column;
