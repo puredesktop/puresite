@@ -20,35 +20,66 @@ import type { SiteDocument, SitePage } from '../lib/siteDocument'
 import type { Collection } from '../lib/siteData'
 import type { SiteVerification } from '../lib/siteVerification'
 
-export const PURESITE_AGENT_TOOLS = [
+/**
+ * Exposed PureSite operations (must stay in sync 1:1 with `plugin.json` -> `app.agents.tools[].name`).
+ *
+ * 3-tier exposure (built on `@purescience/platform-ui/bridge/appFunctions`):
+ *   1. 6 composite `function` workflows (`fn_*`) — replace 3–10 atomic round-trips each
+ *   2. 8 core atomic tools (~23% of 35) — indispensable direct read/write/review/save/build verbs
+ *   3. 3 universal escape-hatch meta-tools (`discoverAppTools`, `callExtendedReadTool`, `callExtendedTool`)
+ *      providing full on-demand access to the remaining 27 specialist atomic tools.
+ */
+export const PURESITE_FUNCTION_NAMES = [
+  'fn_siteArchitectureBriefing',
+  'fn_pageDossierAndContent',
+  'fn_seoAccessibilityAndResponsiveAudit',
+  'fn_scaffoldPageWithSections',
+  'fn_polishThemeSeoAndNavigation',
+  'fn_prePublishReadinessCheck',
+] as const
+
+export const PURESITE_CORE_TOOL_NAMES = [
   'getSiteContext',
-  'getSiteMap',
-  'prepareSite',
-  'getDrawerRequest',
-  'cancelDrawerRequest',
-  'commitDrawerRequest',
   'readPage',
   'writePage',
   'addPage',
-  'deletePage',
+  'writeStyles',
+  'exportPage',
+  'saveSite',
+  'buildSite',
+] as const
+
+export const PURESITE_META_TOOL_NAMES = [
+  'discoverAppTools',
+  'callExtendedReadTool',
+  'callExtendedTool',
+] as const
+
+export const EXPOSED_TOOL_NAMES = [
+  ...PURESITE_FUNCTION_NAMES,
+  ...PURESITE_CORE_TOOL_NAMES,
+  ...PURESITE_META_TOOL_NAMES,
+] as const
+
+export const PURESITE_AGENT_TOOLS = EXPOSED_TOOL_NAMES
+
+export const PURESITE_EXTENDED_TOOL_NAMES = [
+  'getSiteMap',
   'movePage',
+  'deletePage',
   'setPageTitle',
   'setElementText',
   'setElementSrc',
   'insertElement',
   'deleteElement',
   'readStyles',
-  'writeStyles',
   'setAssetRole',
+  'makeImage',
   'listBrands',
   'useBrand',
   'proposeBrandToOrganisation',
   'proposeSamplesToOrganisation',
-  'makeImage',
   'checkSite',
-  'saveSite',
-  'buildSite',
-  'exportPage',
   'checkResponsive',
   'listCollections',
   'setCollection',
@@ -56,6 +87,15 @@ export const PURESITE_AGENT_TOOLS = [
   'addFormForCollection',
   'listRevisions',
   'restoreRevision',
+  'prepareSite',
+  'getDrawerRequest',
+  'commitDrawerRequest',
+  'cancelDrawerRequest',
+] as const
+
+export const PURESITE_ALL_ATOMIC_TOOL_NAMES = [
+  ...PURESITE_CORE_TOOL_NAMES,
+  ...PURESITE_EXTENDED_TOOL_NAMES,
 ] as const
 
 export const PURESITE_AGENT_LOG_LABEL = '[puresite:agent]'

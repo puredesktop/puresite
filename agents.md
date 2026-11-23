@@ -3,6 +3,56 @@
 A site is a FOLDER of real files, not one document. Every tool here reads or
 rewrites a file in that folder.
 
+## Operations: Composite App Functions + 3-Tier Exposure
+
+PureSite exposes **17 operations** (down from 35 atomic tools) using the shared
+Pure\* App Functions primitive (`@purescience/platform-ui/bridge/appFunctions`),
+while preserving 100% of all 35 atomic tools:
+
+1. **6 Composite App Functions (`fn_*`, always exposed)** — prefer these first to
+   collapse 3–10 atomic round-trips into one call:
+   - `fn_siteArchitectureBriefing` (`read`): site metadata, hashes, ordered pages,
+     link graph, promised/orphan pages, lenses (journeys, header drift, date
+     contradictions), design tokens + WCAG contrast, assets, collections, and
+     verification state in one call.
+   - `fn_pageDossierAndContent` (`read`): deep single-page inspection (hashes,
+     SEO/OG head metadata, heading outline, image alt coverage, link
+     neighborhood, page findings/lenses, optional deterministic `answerFor`, and
+     full HTML).
+   - `fn_seoAccessibilityAndResponsiveAudit` (`read`): unified SEO,
+     accessibility, WCAG 2.1 contrast, link/stylesheet health, weight budget,
+     search/social preview, and optional live responsive viewport checks.
+   - `fn_scaffoldPageWithSections` (`write`): create or update a page using
+     responsive Swiss-editorial section blocks or custom HTML, auto-attaching
+     section CSS, SEO head metadata, and optional `404.html`.
+   - `fn_polishThemeSeoAndNavigation` (`write`): coordinated Design Studio
+     preset/token updates, batch page titles + SEO/OG head metadata, missing
+     `lang` fixes, `404.html`, and nav reordering with before/after preflight
+     scores.
+   - `fn_prePublishReadinessCheck` (`read`): full pre-build/pre-publish
+     readiness check (`checkSite`, preview verification, preflight score,
+     planned `build/` manifest, lenses, collection host checks, and live
+     published record).
+2. **8 Core Atomic Tools (`exposure: "always"`)** — directly callable by name:
+   `getSiteContext`, `readPage`, `writePage`, `addPage`, `writeStyles`,
+   `exportPage`, `saveSite`, `buildSite`.
+3. **3 Universal Escape-Hatch Meta-Tools** — full on-demand access to all **27
+   extended specialist tools** (navigation, elements, brand, image generation,
+   responsive checks, collections/forms, revisions, drawer requests):
+   - `discoverAppTools` (`read`) — search extended tools by keyword/category or
+     fetch exact JSON schemas via `names: [...]`.
+   - `callExtendedReadTool` (`read`) — run any read-only extended tool
+     (`getSiteMap`, `readStyles`, `listBrands`, `checkSite`, `checkResponsive`,
+     `listCollections`, `listRevisions`, `getDrawerRequest`).
+   - `callExtendedTool` (`write`, `confirmDestructive: true` for destructive
+     tools) — run any mutating extended tool (`movePage`, `deletePage`,
+     `setPageTitle`, `setElementText`, `setElementSrc`, `insertElement`,
+     `deleteElement`, `setAssetRole`, `makeImage`, `useBrand`,
+     `proposeBrandToOrganisation`, `proposeSamplesToOrganisation`,
+     `setCollection`, `deleteCollection`, `addFormForCollection`,
+     `restoreRevision`, `prepareSite`, `commitDrawerRequest`,
+     `cancelDrawerRequest`).
+
 ```text
 My site.site/
   site.json          title, nav order, target, brief, what each file is for,

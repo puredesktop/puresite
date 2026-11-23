@@ -49,7 +49,461 @@
     "agents": {
       "tools": [
         {
+          "name": "fn_siteArchitectureBriefing",
+          "risk": "read",
+          "description": "Read a complete single-call site architecture briefing: site metadata, hashes for baseHash, ordered pages with link graph and promised pages, orphan/drift/contradiction lenses, design tokens with WCAG contrast, asset inventory by role, collections, verification state, and revision count.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "includeStyles": {
+                "type": "boolean",
+                "description": "Include the full shared styles/site.css text (default false)."
+              },
+              "includePromisedBriefs": {
+                "type": "boolean",
+                "description": "Include sentence-derived briefs for promised unbuilt pages (default true)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "fn_pageDossierAndContent",
+          "risk": "read",
+          "description": "Call getSiteContext first for exact page paths. Inspect a single page in depth in one call: page and site hashes, URL, SEO and OpenGraph head metadata, heading outline, image alt coverage, link neighborhood and journey distance, page-specific checkSite/health/reach notes, optional deterministic answer to a question, and full HTML.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "string",
+                "description": "Page path (e.g. index.html or about/index.html). Defaults to the currently selected page."
+              },
+              "includeHtml": {
+                "type": "boolean",
+                "description": "Include full raw HTML document (default true)."
+              },
+              "question": {
+                "type": "string",
+                "description": "Optional reader question to check deterministically against site copy via answerFor."
+              }
+            },
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "fn_seoAccessibilityAndResponsiveAudit",
+          "risk": "read",
+          "description": "Call getSiteContext first for exact page paths. Run a unified SEO, accessibility, WCAG 2.1 contrast, link/stylesheet health, payload weight, and optional live responsive layout audit in one call. Returns a 0–100 score, launch grade, categorized findings, search/social preview, and recommended fixes.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "string",
+                "description": "Page path for search/social preview and optional responsive measurement. Defaults to selected page."
+              },
+              "measureResponsive": {
+                "type": "boolean",
+                "description": "Run live viewport responsive checks via checkResponsive at phone/tablet widths (default false)."
+              },
+              "widths": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 320,
+                  "maximum": 1920
+                },
+                "description": "Viewport widths to measure when measureResponsive is true (default [390, 768])."
+              },
+              "includePasses": {
+                "type": "boolean",
+                "description": "Include passing audit checks alongside errors and warnings (default false)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "fn_scaffoldPageWithSections",
+          "risk": "write",
+          "description": "Call getSiteContext first for exact page paths and site baseHash. Create a new page or update an existing page with responsive Swiss-editorial section blocks and custom HTML, attach shared section styles automatically, apply SEO/OpenGraph head metadata, and optionally create 404.html in one call. Returns new hashes and immediate checkSite findings.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "baseHash": {
+                "type": "string",
+                "description": "The site hash from getSiteContext or fn_siteArchitectureBriefing. Required."
+              },
+              "page": {
+                "type": "string",
+                "description": "Target page path (e.g. \"about\", \"work/index.html\", or \"index.html\"). Defaults to selected page for append/replace."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "create",
+                  "append",
+                  "replace"
+                ],
+                "description": "create adds a brand-new page; append inserts sections into an existing page (default); replace replaces <main> (or body content) on an existing page."
+              },
+              "title": {
+                "type": "string",
+                "description": "Optional <title> for the target page."
+              },
+              "sections": {
+                "type": "array",
+                "description": "Ordered list of section library IDs (hero, editorial-split, feature-grid, metrics-strip, pricing-tiers, testimonials, faq-accordion, contact-form, cta-banner, site-footer) or objects with { id?, markup?, beforePath?, afterPath? }.",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "hero",
+                        "editorial-split",
+                        "feature-grid",
+                        "metrics-strip",
+                        "pricing-tiers",
+                        "testimonials",
+                        "faq-accordion",
+                        "contact-form",
+                        "cta-banner",
+                        "site-footer"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "enum": [
+                            "hero",
+                            "editorial-split",
+                            "feature-grid",
+                            "metrics-strip",
+                            "pricing-tiers",
+                            "testimonials",
+                            "faq-accordion",
+                            "contact-form",
+                            "cta-banner",
+                            "site-footer"
+                          ]
+                        },
+                        "markup": {
+                          "type": "string"
+                        },
+                        "beforePath": {
+                          "type": "string"
+                        },
+                        "afterPath": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "head": {
+                "type": "object",
+                "description": "Optional SEO/OpenGraph/language head metadata to apply to the page.",
+                "properties": {
+                  "lang": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "ogTitle": {
+                    "type": "string"
+                  },
+                  "ogDescription": {
+                    "type": "string"
+                  },
+                  "ogImage": {
+                    "type": "string"
+                  },
+                  "favicon": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "create404": {
+                "type": "boolean",
+                "description": "Create a branded 404.html starter page if not already present."
+              }
+            },
+            "required": [
+              "baseHash"
+            ],
+            "additionalProperties": false
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "fn_polishThemeSeoAndNavigation",
+          "risk": "write",
+          "description": "Call getSiteContext first for exact page paths and site baseHash. Apply a coordinated design-token theme preset or token overrides, batch page titles and SEO/OpenGraph head metadata, missing html lang fixes, 404.html creation, and nav reordering in one call. Returns WCAG contrast grades, before/after preflight scores, and updated hashes.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "baseHash": {
+                "type": "string",
+                "description": "The site hash from getSiteContext or fn_siteArchitectureBriefing. Required."
+              },
+              "preset": {
+                "type": "string",
+                "enum": [
+                  "swiss-editorial",
+                  "warm-paper",
+                  "obsidian-ink",
+                  "high-contrast-clear",
+                  "signal-bold"
+                ],
+                "description": "Optional Design Studio preset (swiss-editorial, warm-paper, obsidian-ink, high-contrast-clear, signal-bold)."
+              },
+              "tokens": {
+                "type": "object",
+                "description": "Optional partial Design Studio token overrides merged over current or preset tokens.",
+                "properties": {
+                  "ground": {
+                    "type": "string"
+                  },
+                  "surface": {
+                    "type": "string"
+                  },
+                  "ink": {
+                    "type": "string"
+                  },
+                  "inkSoft": {
+                    "type": "string"
+                  },
+                  "accent": {
+                    "type": "string"
+                  },
+                  "displayFont": {
+                    "type": "string"
+                  },
+                  "bodyFont": {
+                    "type": "string"
+                  },
+                  "monoFont": {
+                    "type": "string"
+                  },
+                  "measureCh": {
+                    "type": "number",
+                    "minimum": 48,
+                    "maximum": 84
+                  },
+                  "radiusPx": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 16
+                  },
+                  "rhythmScale": {
+                    "type": "number",
+                    "minimum": 0.75,
+                    "maximum": 1.4
+                  }
+                },
+                "additionalProperties": false
+              },
+              "pageMeta": {
+                "type": "array",
+                "description": "Batch updates to page titles and SEO/OpenGraph head metadata.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "lang": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "ogTitle": {
+                      "type": "string"
+                    },
+                    "ogDescription": {
+                      "type": "string"
+                    },
+                    "ogImage": {
+                      "type": "string"
+                    },
+                    "favicon": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "page"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "fixMissingLang": {
+                "type": "string",
+                "description": "Set <html lang=\"...\"> on every page that lacks a lang attribute (e.g. \"en\")."
+              },
+              "ensure404": {
+                "type": "boolean",
+                "description": "Add a branded starter 404.html page if none exists."
+              },
+              "navOrder": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional complete ordered list of page paths for nav order (must list every existing page once)."
+              }
+            },
+            "required": [
+              "baseHash"
+            ],
+            "additionalProperties": false
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "fn_prePublishReadinessCheck",
+          "risk": "read",
+          "description": "Run a complete pre-build and pre-publish readiness check in one call: combines checkSite findings, preview verification state, preflight SEO/accessibility score, link/journey/contradiction lenses, planned build/ file manifest and unused assets, collection storage requirements, and published record status. Publishing itself remains human-only in the Publish dialog.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "includeFileManifest": {
+                "type": "boolean",
+                "description": "Include every planned file entry in build/ (default true)."
+              },
+              "includeLlmsPreview": {
+                "type": "boolean",
+                "description": "Include generated llms.txt preview text (default false)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "getSiteContext",
+          "risk": "read",
+          "description": "Return the open site: title, package path, the site hash, every page with its URL path, title and its own hash, the nav order, the stylesheet, the files attached and what each is for, the user's current selection when they have clicked an element in the preview, the verification state (verified / checking / failed, with reasons in plain words), how many revision snapshots exist, and where the site is published. Call this first, always — a page path or element path guessed without it is usually wrong. Every write takes baseHash: a page's hash for page tools, the site hash for writeStyles, movePage and the collection tools.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "readPage",
+          "risk": "read",
+          "description": "Call getSiteContext first to get exact page paths. Return the full HTML of one page with its hash. Pass that hash as baseHash (with page) to writePage or to an element tool on that page.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "string",
+                "description": "Page path, e.g. index.html or work/index.html"
+              }
+            },
+            "required": [
+              "page"
+            ],
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "writePage",
+          "risk": "write",
+          "description": "Replace one page's HTML. Requires baseHash — the page hash from readPage; refused with \"changed since your read\" when the page moved meanwhile, in which case call readPage again and redo the edit. The previous site is snapshotted first (listRevisions / restoreRevision). Lay content out in flow — never position children absolutely at fixed offsets, or they overlap when text wraps at a different width. Link the stylesheet with the right number of ../ for the page's depth: a wrong link previews unstyled because it ships unstyled.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "string"
+              },
+              "html": {
+                "type": "string",
+                "description": "The whole document, doctype to </html>"
+              },
+              "baseHash": {
+                "type": "string",
+                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
+              }
+            },
+            "required": [
+              "baseHash",
+              "html",
+              "page"
+            ],
+            "additionalProperties": false
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "addPage",
+          "risk": "write",
+          "description": "Call getSiteContext first for existing pages and site baseHash. Add a page to the open site. A name without .html becomes a folder with an index.html, so 'about' serves at /about/.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "html": {
+                "type": "string",
+                "description": "Optional full document; a starter page is written when absent"
+              },
+              "baseHash": {
+                "type": "string",
+                "description": "The site hash from getSiteContext. Refused when the site changed since your read — call getSiteContext again and redo the edit."
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "writeStyles",
+          "risk": "write",
+          "description": "Replace the site stylesheet. One stylesheet governs the whole site, so a change here changes every page. Requires baseHash — the site hash from readStyles or getSiteContext; refused when the site changed since your read.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "css": {
+                "type": "string"
+              },
+              "baseHash": {
+                "type": "string",
+                "description": "The site hash from getSiteContext. Refused when the site changed since your read — call getSiteContext again and redo the edit."
+              }
+            },
+            "required": [
+              "baseHash",
+              "css"
+            ],
+            "additionalProperties": false
+          },
+          "requiresApproval": true
+        },
+        {
           "name": "exportPage",
+          "risk": "write",
           "description": "Export a page from the open site to a PDF or full-page PNG for review. Defaults to the current page. Saves a new file under the site package reviews/ folder and returns outputPath and artifactPaths. Does not publish or send anything. Drafts can be exported. Call getSiteContext first.",
           "inputSchema": {
             "type": "object",
@@ -77,635 +531,17 @@
             ],
             "additionalProperties": false
           },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "checkResponsive",
-          "description": "Measure a page at phone and tablet widths (default 390 and 768): buttons whose text wraps or overflows, the headline's line count (at most 3), elements closer than 16px (24px on tablets) to the screen edge, text under 14px, empty vertical bands, section headings that switch between centred and left, headings tracked tighter than -0.035em, sideways scrolling, and header links a reader cannot reach with no working menu or other link in their place (nav-links-hidden; nav-check-incomplete when it could not tell, which is never clean). It only reads: menus are opened in its measuring copy, never in the site's files. It also returns copyNotes (advice, never part of clean) for cards holding only a word or two: give each a claim from the brief or remove it. Run it after every draft or stylesheet change and fix every finding, then export a PNG at 390 and look at it with view_image before calling the site done. PureSite must be on screen for the measurement.",
-          "risk": "read",
-          "requiresApproval": false,
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "widths": {
-                "type": "array",
-                "items": {
-                  "type": "integer",
-                  "minimum": 320,
-                  "maximum": 1920
-                }
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        {
-          "name": "cancelDrawerRequest",
-          "risk": "destructive",
-          "description": "Cancel the saved pending request by ID. Subsequent commits are refused. Does not undo a completed save.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "requestId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "requestId"
-            ],
-            "additionalProperties": false
-          },
           "requiresApproval": true
-        },
-        {
-          "name": "prepareSite",
-          "description": "Save the current site brief as a composition request. No model call. Returns only the request identity: requestId, baseHash, path, kind, status and counts. Then call getDrawerRequest for the saved HTML, styles, design guide and files, compose here, commitDrawerRequest with that requestId and baseHash, then checkSite and buildSite.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "brief": {
-                "type": "string",
-                "description": "Optional creation brief; defaults to the saved brief."
-              }
-            },
-            "additionalProperties": false
-          },
-          "risk": "write",
-          "requiresApproval": true
-        },
-        {
-          "name": "getDrawerRequest",
-          "risk": "read",
-          "description": "Read the saved request, exact HTML/baseHash, edit scope, assets and design guide.",
-          "requiresApproval": false,
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-            "additionalProperties": false
-          }
-        },
-        {
-          "name": "commitDrawerRequest",
-          "description": "Commit the saved request once. Draft/edit: supply complete pages and styles preserving everything outside the saved selection. Describe: supply descriptions only from actual image pixels. Returns persisted status, not layout certification.",
-          "requiresApproval": true,
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "requestId": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "descriptions": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "name": {
-                      "type": "string"
-                    },
-                    "description": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "name",
-                    "description"
-                  ]
-                }
-              },
-              "pages": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "string"
-                }
-              },
-              "styles": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "requestId",
-              "baseHash"
-            ],
-            "additionalProperties": false
-          },
-          "risk": "write"
-        },
-        {
-          "name": "getSiteContext",
-          "risk": "read",
-          "description": "Return the open site: title, package path, the site hash, every page with its URL path, title and its own hash, the nav order, the stylesheet, the files attached and what each is for, the user's current selection when they have clicked an element in the preview, the verification state (verified / checking / failed, with reasons in plain words), how many revision snapshots exist, and where the site is published. Call this first, always — a page path or element path guessed without it is usually wrong. Every write takes baseHash: a page's hash for page tools, the site hash for writeStyles, movePage and the collection tools.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-          },
-          "requiresApproval": false
-        },
-        {
-          "name": "getSiteMap",
-          "description": "The site as its links draw it: every page with what it links to and what links to it, every page the writing PROMISES but nobody has built (with the sentences that promised it and a brief taken only from them), and every page nothing points at. A promised page is not an error — the build keeps the words and drops the anchor, so no reader meets a dead end. Read this before adding a page: the site usually already says what it needs.",
-          "requiresApproval": false,
-          "risk": "read",
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-          }
-        },
-        {
-          "name": "readPage",
-          "risk": "read",
-          "description": "Return the full HTML of one page with its hash. Pass that hash as baseHash (with page) to writePage or to an element tool on that page.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string",
-                "description": "Page path, e.g. index.html or work/index.html"
-              }
-            },
-            "required": [
-              "page"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": false
-        },
-        {
-          "name": "writePage",
-          "description": "Replace one page's HTML. Requires baseHash — the page hash from readPage; refused with \"changed since your read\" when the page moved meanwhile, in which case call readPage again and redo the edit. The previous site is snapshotted first (listRevisions / restoreRevision). Lay content out in flow — never position children absolutely at fixed offsets, or they overlap when text wraps at a different width. Link the stylesheet with the right number of ../ for the page's depth: a wrong link previews unstyled because it ships unstyled.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "html": {
-                "type": "string",
-                "description": "The whole document, doctype to </html>"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "baseHash",
-              "html",
-              "page"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "addPage",
-          "description": "Add a page. A name without .html becomes a folder with an index.html, so 'about' serves at /about/.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "path": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "html": {
-                "type": "string",
-                "description": "Optional full document; a starter page is written when absent"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The site hash from getSiteContext. Refused when the site changed since your read — call getSiteContext again and redo the edit."
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "deletePage",
-          "risk": "destructive",
-          "description": "Delete a page. Refuses to delete the last one.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "page"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true
-        },
-        {
-          "name": "movePage",
-          "description": "Reorder the nav. Pure reorder — the page itself does not change.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "from": {
-                "type": "number"
-              },
-              "to": {
-                "type": "number"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The site hash from getSiteContext. Refused when the site changed since your read — call getSiteContext again and redo the edit."
-              }
-            },
-            "required": [
-              "from",
-              "to"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "setPageTitle",
-          "description": "Set a page's <title>, which is also its name in the rail and the nav.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "page",
-              "title"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "setElementText",
-          "description": "Retype one element's text. Only a leaf can be retyped: setting text on a container would delete every element inside it.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string",
-                "description": "Child indices from <body>, e.g. 0/2/1 — from getSiteContext's selection"
-              },
-              "text": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "page",
-              "path",
-              "text"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "setElementSrc",
-          "description": "Point an image at a file in assets/, or put one into an empty box — the box is kept and the image fills it.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "src": {
-                "type": "string",
-                "description": "assets/<file name>"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "page",
-              "path",
-              "src"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "insertElement",
-          "description": "Insert markup into a page in flow, before or after an existing element. There is no x/y: order is the only position, which is what keeps a page from overlapping itself at another width.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "markup": {
-                "type": "string"
-              },
-              "beforePath": {
-                "type": "string"
-              },
-              "afterPath": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "page",
-              "markup"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "deleteElement",
-          "risk": "destructive",
-          "description": "Remove one element from a page.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "page",
-              "path"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true
-        },
-        {
-          "name": "readStyles",
-          "risk": "read",
-          "description": "Return the site stylesheet every page shares, with the site hash to pass as baseHash to writeStyles.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-          },
-          "requiresApproval": false
-        },
-        {
-          "name": "writeStyles",
-          "description": "Replace the site stylesheet. One stylesheet governs the whole site, so a change here changes every page. Requires baseHash — the site hash from readStyles or getSiteContext; refused when the site changed since your read.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "css": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The site hash from getSiteContext. Refused when the site changed since your read — call getSiteContext again and redo the edit."
-              }
-            },
-            "required": [
-              "baseHash",
-              "css"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "setAssetRole",
-          "description": "Say what an attached file is for: content to place on a page, a design reference to read a look from and never show, or the logo.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "role": {
-                "type": "string",
-                "enum": [
-                  "content",
-                  "reference",
-                  "logo"
-                ]
-              }
-            },
-            "required": [
-              "name",
-              "role"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "listBrands",
-          "risk": "read",
-          "description": "Every brand this person can put on the site: the organisation's (its house style marked default: true, with its sample image paths), the workspace's Brands folder and their own, each with id, name, source, path, palette, fonts and sample count, plus the brand the site is in now. With an organisation house style, it is the look whenever the person gives no other reference, brand or look: view its samples with view_image first, then useBrand with its id. On a desktop that does not list brands it says so; useBrand then takes a path.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-          },
-          "requiresApproval": false
-        },
-        {
-          "name": "useBrand",
-          "description": "Put a saved brand on the site: the organisation's house style, a workspace brand or the person's own (listBrands names them all), or any .designsystem.json (the suite's shared brand format, saved by PureSlides' saveLookAsBrand, Canvas or PureDesign) with its fonts, logos, motif art and reference images beside it. Its files are copied into assets/ (fonts self-hosted, logos and references marked), and a managed block at the top of styles/site.css gets the @font-face rules and --brand-* custom properties (bg, surface, ink, muted, accent, on-accent, accent-2, highlight, line, font-display, font-body, font-mono, display-weight, heading-case, radius, motif). Re-applying replaces only that block; the site remembers which brand it is in. Then write the rest of the stylesheet with those properties, and tell the person which brand you used.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "brand": {
-                "type": "string",
-                "description": "A brand id from listBrands (an organisation brand's id works), or the absolute path of a .designsystem.json file."
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The site hash from getSiteContext or readStyles."
-              }
-            },
-            "required": [
-              "brand",
-              "baseHash"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "proposeBrandToOrganisation",
-          "description": "Call getSiteContext first. Propose a saved brand (a .designsystem.json with its .brand/ folder) to the organisation's PureServer, for an administrator to approve as one of its brands. It must carry at least one sample image (reference). Use it when the person says a brand they made should be the organisation's. Without brand, the brand the site is in. Errors come back in plain words (not in an organisation; no sample images): pass them on. Nothing changes until an administrator approves.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "brand": {
-                "type": "string",
-                "description": "A brand id from listBrands, or the absolute path of a .designsystem.json. Defaults to the site's brand."
-              },
-              "note": {
-                "type": "string",
-                "description": "A line for the administrator: why this brand."
-              }
-            },
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "proposeSamplesToOrganisation",
-          "description": "Call getSiteContext first. Propose sample images to the organisation for one of its brands (the site's brand when it is the organisation's, otherwise its house style): once an administrator approves, they join the brand's samples that every design agent looks at first. Without images, the site's own pages are captured as PNG (the ticked pages, or the one on screen; at 1280 wide unless widths are given; at most 12 images). Use it when the person says this site shows the house style well.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "images": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Absolute paths of PNG, JPEG or WebP images (at most 12), e.g. ones exportPage made. Leave out to capture pages."
-              },
-              "pages": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Page paths to capture when no images are given."
-              },
-              "widths": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                },
-                "description": "Widths to capture each page at (320–3840), e.g. [1280, 390]."
-              },
-              "brand": {
-                "type": "string",
-                "description": "The organisation brand's id from listBrands; defaults as above."
-              },
-              "note": {
-                "type": "string",
-                "description": "A line for the administrator."
-              }
-            },
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "makeImage",
-          "description": "Generate a picture for the site with the desktop's image model (best quality): the brand's motif or texture (a network of glowing nodes, a grain, a light field), hero or conceptual art. Required whenever the reference has such art — call it BEFORE composing the page (before prepareSite or writeStyles), then use the file in the stylesheet: never imitate it with CSS shapes or SVG line art. SVG or CSS is only a fallback when this tool reports no image model, or for exact diagrams and charts. Prompt from the reference (what it is, its light, density, colours, the brand palette as hex); pass reference (an asset name or absolute path) so the model matches it. Background art is asked for wide and calm with quiet areas for text and no text in it. Saved as assets/<name>.png; the picture comes back so you can judge it. Reuse one motif across the site.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "prompt": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "reference": {
-                "type": "string"
-              },
-              "size": {
-                "type": "string",
-                "enum": [
-                  "1536x1024",
-                  "1024x1024",
-                  "1024x1536"
-                ]
-              },
-              "background": {
-                "type": "boolean",
-                "description": "Background-safe art with quiet areas for text (default true)."
-              }
-            },
-            "required": [
-              "prompt"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "checkSite",
-          "risk": "read",
-          "description": "Report what will be wrong once the site is live: links that go nowhere, images referenced but never added, a stylesheet linked with the wrong number of ../, pages nothing reaches, pages with no title — plus the verification state of the preview. Run this before buildSite.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-          },
-          "requiresApproval": false
         },
         {
           "name": "saveSite",
+          "risk": "write",
           "description": "Save the current site into its app-managed .site package and return the durable artifact path. Call this after site edits before completing a mission.",
           "inputSchema": {
             "type": "object",
             "properties": {},
             "additionalProperties": false
           },
-          "risk": "write",
           "requiresApproval": true
         },
         {
@@ -720,211 +556,85 @@
           "requiresApproval": true
         },
         {
-          "name": "listCollections",
+          "name": "discoverAppTools",
           "risk": "read",
-          "description": "Return what this site can store: each collection, its fields and types, and who may read, insert, update and delete. Empty when the site holds no records.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-          },
-          "requiresApproval": false
-        },
-        {
-          "name": "setCollection",
-          "description": "Create or replace a collection of records. Names are lowercase identifiers. Access defaults to insert public and read owner — anyone may submit, only the owner reads back — which is what a form wants; widen it deliberately. Records need an account-owned site on here.now.",
+          "requiresApproval": false,
+          "description": "Discover PureSite's extended specialist tools (27 tools across assets, audit, brand, collections, drawer, elements, navigation, pages, revisions, styles) and composite functions (6 workflows). Prefer calling exposed composite functions and core tools first; use discoverAppTools when an edge case needs a specialist tool, then call it via callExtendedReadTool (for read-only tools) or callExtendedTool (for mutating tools).",
           "inputSchema": {
             "type": "object",
             "properties": {
-              "name": {
+              "query": {
                 "type": "string",
-                "description": "Lowercase identifier, e.g. enquiries"
+                "description": "Optional keywords describing the capability you need (e.g. \"assets\", \"audit\", \"brand\", \"collections\", \"drawer\")."
               },
-              "fields": {
+              "category": {
+                "type": "string",
+                "description": "Optional category filter (assets, audit, brand, collections, drawer, elements, navigation, pages, revisions, styles, or \"all\")."
+              },
+              "names": {
                 "type": "array",
-                "description": "The fields a record may carry.",
                 "items": {
-                  "type": "object",
-                  "required": [
-                    "name",
-                    "type"
-                  ],
-                  "properties": {
-                    "name": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "type": "string",
-                      "enum": [
-                        "string",
-                        "number",
-                        "integer",
-                        "boolean",
-                        "url",
-                        "email",
-                        "datetime",
-                        "array",
-                        "object"
-                      ]
-                    },
-                    "required": {
-                      "type": "boolean"
-                    },
-                    "maxLength": {
-                      "type": "number",
-                      "description": "Strings, arrays and objects"
-                    },
-                    "minimum": {
-                      "type": "number"
-                    },
-                    "maximum": {
-                      "type": "number"
-                    },
-                    "trim": {
-                      "type": "boolean"
-                    }
-                  }
-                }
+                  "type": "string"
+                },
+                "description": "Optional exact tool names to fetch full JSON input schemas for."
               },
-              "access": {
-                "type": "object",
-                "description": "public, owner or none per action. Omit for the safe default.",
-                "properties": {
-                  "read": {
-                    "type": "string",
-                    "enum": [
-                      "public",
-                      "owner",
-                      "none"
-                    ]
-                  },
-                  "insert": {
-                    "type": "string",
-                    "enum": [
-                      "public",
-                      "owner",
-                      "none"
-                    ]
-                  },
-                  "update": {
-                    "type": "string",
-                    "enum": [
-                      "public",
-                      "owner",
-                      "none"
-                    ]
-                  },
-                  "delete": {
-                    "type": "string",
-                    "enum": [
-                      "public",
-                      "owner",
-                      "none"
-                    ]
-                  }
-                }
-              },
-              "rateLimit": {
-                "type": "string",
-                "description": "\"<number>/hour/ip\" or \"<number>/minute/ip\""
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The site hash from getSiteContext. Refused when the site changed since your read — call getSiteContext again and redo the edit."
+              "includeFunctions": {
+                "type": "boolean",
+                "description": "Include already-exposed composite functions and core tools in the listing (default false: searches extended tools first)."
               }
-            },
-            "required": [
-              "name",
-              "fields"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
+            }
+          }
         },
         {
-          "name": "deleteCollection",
-          "risk": "destructive",
-          "description": "Stop the site storing a kind of record. Records already held by the host are not deleted by this — it changes what the site declares.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The site hash from getSiteContext. Refused when the site changed since your read — call getSiteContext again and redo the edit."
-              }
-            },
-            "required": [
-              "name"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true
-        },
-        {
-          "name": "addFormForCollection",
-          "description": "Insert a working form into a page that submits to one of this site's collections. The markup and its script are generated from the collection, so the form and what the host will accept cannot disagree. No key is involved: public insert works because the request comes from the site itself.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "collection": {
-                "type": "string"
-              },
-              "page": {
-                "type": "string",
-                "description": "Defaults to the page on screen"
-              },
-              "beforePath": {
-                "type": "string"
-              },
-              "afterPath": {
-                "type": "string"
-              },
-              "baseHash": {
-                "type": "string",
-                "description": "The page's hash from readPage (or getSiteContext's pages[].hash). Checked against that page only; refused when the page changed since your read — read it again and redo the edit."
-              }
-            },
-            "required": [
-              "collection"
-            ],
-            "additionalProperties": false
-          },
-          "requiresApproval": true,
-          "risk": "write"
-        },
-        {
-          "name": "listRevisions",
+          "name": "callExtendedReadTool",
           "risk": "read",
-          "description": "List the site's revision snapshots, newest first. A snapshot is the WHOLE site as it was before a change: every ask from the prompt box, every agent write, every import and every restore copies the previous version into the package's history/ folder first (12 kept). Each entry reports file, at, reason, scope, textChars and byteSize — compare textChars across entries to see where content went missing. Where the site is published is never part of a snapshot. Call this before restoreRevision.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-          },
-          "requiresApproval": false
-        },
-        {
-          "name": "restoreRevision",
-          "risk": "destructive",
-          "description": "Put a revision snapshot back as the open site — the same restore as the UI's Undo and History list. Use it when a rewrite (yours or an earlier one) lost content the user wanted kept: a write result reports textRemoved when a large share of the visible text vanished. The current site is snapshotted first (reason \"restore\"), so a restore is itself undoable; the site's published record (host, URL, claim token) is kept as it is now, never taken from the snapshot. Pass the file name exactly as listRevisions reports it, then call getSiteContext for the new hashes.",
+          "requiresApproval": false,
+          "description": "Call one of PureSite's read-only extended specialist tools discovered via discoverAppTools (categories: assets, audit, brand, collections, drawer, elements, navigation, pages, revisions, styles). Strictly refuses mutating, destructive, external, or release tools.",
           "inputSchema": {
             "type": "object",
             "properties": {
-              "file": {
+              "tool": {
                 "type": "string",
-                "description": "The snapshot's file name from listRevisions."
+                "description": "Exact name of a read-only extended tool from discoverAppTools."
+              },
+              "arguments": {
+                "type": "object",
+                "description": "Arguments object matching the tool’s inputSchema."
               }
             },
             "required": [
-              "file"
-            ],
-            "additionalProperties": false
+              "tool"
+            ]
+          }
+        },
+        {
+          "name": "callExtendedTool",
+          "risk": "write",
+          "requiresApproval": true,
+          "riskWhen": {
+            "confirmDestructive": "destructive"
           },
-          "requiresApproval": true
+          "description": "Call one of PureSite's mutating extended specialist tools discovered via discoverAppTools (categories: assets, audit, brand, collections, drawer, elements, navigation, pages, revisions, styles). For destructive tools, set confirmDestructive: true after checking with the user. Strictly refuses read-only tools (use callExtendedReadTool), external tools, permanent-delete tools, and release tools.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string",
+                "description": "Exact name of a mutating extended tool from discoverAppTools."
+              },
+              "arguments": {
+                "type": "object",
+                "description": "Arguments object matching the tool’s inputSchema."
+              },
+              "confirmDestructive": {
+                "type": "boolean",
+                "description": "Required (true) when calling an extended tool marked risk: \"destructive\"."
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          }
         }
       ]
     }

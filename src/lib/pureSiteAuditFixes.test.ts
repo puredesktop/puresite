@@ -626,10 +626,13 @@ describe('Builder, layout, agent & must-have feature fixes', () => {
       inputSchema?: { additionalProperties?: boolean }
     }>
     expect(tools.map(t => t.name).sort()).toEqual([...PURESITE_AGENT_TOOLS].sort())
+    const metaTools = new Set(['discoverAppTools', 'callExtendedReadTool', 'callExtendedTool'])
     for (const tool of tools) {
       expect(['read', 'write', 'destructive']).toContain(tool.risk)
       expect(typeof tool.requiresApproval).toBe('boolean')
-      expect(tool.inputSchema?.additionalProperties).toBe(false)
+      if (!metaTools.has(tool.name)) {
+        expect(tool.inputSchema?.additionalProperties).toBe(false)
+      }
     }
   })
 
