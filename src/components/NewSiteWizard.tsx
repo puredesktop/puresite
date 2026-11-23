@@ -13,6 +13,7 @@ import { styled } from 'styled-components'
 import { ASSET_ROLES, type MaterialItem } from '../lib/material'
 import { suggestedName } from '../lib/assetNames'
 import { APP_ACCENT } from '../constants'
+import { SITE_TEMPLATES } from '../lib/siteTemplates'
 import type { AssetRole } from '../lib/assetNotes'
 import type { TargetProfile } from '../lib/siteDocument'
 
@@ -74,6 +75,7 @@ interface NewSiteWizardProps {
   busy: boolean
   busyLabel: string
   error?: string | null
+  onUseTemplate?: (templateId: string) => void
   onCreate: (briefText?: string) => void
   onSkip: () => void
   onCancel: () => void
@@ -128,6 +130,7 @@ export function NewSiteWizard({
   busy,
   busyLabel,
   error,
+  onUseTemplate,
   onCreate,
   onSkip,
   onCancel,
@@ -166,8 +169,33 @@ export function NewSiteWizard({
 
         {error ? <WizardError role="alert">{error}</WizardError> : null}
 
+        {onUseTemplate ? (
+          <Field>
+            <Label>Start instantly with a multi-page template (no AI required)</Label>
+            <TemplateGrid>
+              {SITE_TEMPLATES.map(template => (
+                <TemplateCard
+                  key={template.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onUseTemplate(template.id)}
+                >
+                  <TemplateSwatches aria-hidden="true">
+                    {template.palette.map((color, idx) => (
+                      <TemplateSwatch key={idx} style={{ background: color }} />
+                    ))}
+                    <TemplateMeta>{template.pages.length} pages</TemplateMeta>
+                  </TemplateSwatches>
+                  <LookName>{template.name}</LookName>
+                  <LookNote>{template.tagline}</LookNote>
+                </TemplateCard>
+              ))}
+            </TemplateGrid>
+          </Field>
+        ) : null}
+
         <Field>
-          <Label htmlFor="wizard-brief">What is it for?</Label>
+          <Label htmlFor="wizard-brief">Or describe a custom site</Label>
           <Brief
             id="wizard-brief"
             value={briefDraft}
@@ -462,6 +490,54 @@ const Looks = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
+`
+
+const TemplateGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+`
+
+const TemplateCard = styled.button`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--platform-colors-border);
+  border-radius: 3px;
+  background: var(--platform-colors-surface);
+  color: var(--platform-colors-text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  &:hover:not(:disabled) {
+    border-color: ${APP_ACCENT};
+    background: var(--n-hover, var(--platform-colors-surface));
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+`
+
+const TemplateSwatches = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+`
+
+const TemplateSwatch = styled.span`
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgb(0 0 0 / 0.18);
+`
+
+const TemplateMeta = styled.span`
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--platform-colors-text-secondary);
 `
 
 const Targets = styled.div`

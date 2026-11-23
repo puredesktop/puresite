@@ -28,6 +28,14 @@ import { SelectionAsk } from './SelectionAsk'
 import { CommandPalette } from './CommandPalette'
 import { QuestionsSheet } from './QuestionsSheet'
 import { CompactPageBar } from './CompactPageBar'
+import { SectionPickerModal } from './SectionPickerModal'
+import { ElementQuickControls } from './ElementQuickControls'
+import { DesignStudioDrawer } from './DesignStudioDrawer'
+import { PreflightAuditDrawer } from './PreflightAuditDrawer'
+import { CloudShareDrawer } from './CloudShareDrawer'
+import { runPreflightAudit, type AuditFixAction } from '../lib/preflightAudit'
+import type { DesignTokens } from '../lib/designTokens'
+import type { LayoutRead } from '../lib/responsiveCheck'
 import {
   linkGraph,
   linksForPage,
@@ -39,7 +47,13 @@ import { ASSET_ROLES, notesFrom, type MaterialItem } from '../lib/material'
 import { nameOf, suggestedName, usedOn } from '../lib/assetNames'
 import { draftState, draftSummary, liveUrlFor, stateOf } from '../lib/draftState'
 import { fetchLivePage } from '../bridge/platformBridge'
-import { isSafeUrlScheme, readElement, readPageHead, type PageHeadMeta } from '../lib/pages'
+import {
+  isSafeUrlScheme,
+  readPageHead,
+  type ElementAlign,
+  type ElementSpacing,
+  type PageHeadMeta,
+} from '../lib/pages'
 import { isSafeHttpUrl } from '../lib/publishServices'
 import { requiredAssetNames } from '../lib/buildSite'
 import { primaryLook, quiet } from '../ui/look'
@@ -102,6 +116,19 @@ export function SiteBoardView({
   onSetPageTitle,
   onSetElementText,
   onSetElementSrc,
+  onInsertSection,
+  onApplyDesignTokens,
+  onMoveElement,
+  onDuplicateElement,
+  onDeleteElement,
+  onSetElementLink,
+  onSetElementAlt,
+  onSetElementLayout,
+  onCheckResponsive,
+  onOpenExternalUrl,
+  onStatusMessage,
+  cloudShareOpen,
+  onCloudShareOpenChange,
   onAddFiles,
   onSetRole,
   onDescribe,
@@ -184,6 +211,19 @@ export function SiteBoardView({
   onSetPageTitle: (page: string, title: string) => void
   onSetElementText: (page: string, path: string, text: string) => void
   onSetElementSrc: (page: string, path: string, src: string) => void
+  onInsertSection?: (page: string, sectionId: string) => void
+  onApplyDesignTokens?: (tokens: DesignTokens) => void
+  onMoveElement?: (page: string, path: string, direction: 'up' | 'down') => void
+  onDuplicateElement?: (page: string, path: string) => void
+  onDeleteElement?: (page: string, path: string) => void
+  onSetElementLink?: (page: string, path: string, input: { href: string; newTab?: boolean }) => void
+  onSetElementAlt?: (page: string, path: string, alt: string) => void
+  onSetElementLayout?: (page: string, path: string, patch: { align?: ElementAlign; spacing?: ElementSpacing }) => void
+  onCheckResponsive?: (page: string) => Promise<Record<string, LayoutRead | null>>
+  onOpenExternalUrl?: (url: string) => void
+  onStatusMessage?: (message: string) => void
+  cloudShareOpen?: boolean
+  onCloudShareOpenChange?: (open: boolean) => void
   onAddFiles: () => void
   onSetRole: (name: string, role: AssetRole) => void
   /** A description typed by hand — what the file shows, for drafting. */
@@ -217,13 +257,27 @@ export function SiteBoardView({
   // The site map used to be a column of cards here. The links in the content
   // are the map now, so this strip opens only for what is not a page: the
   // files, and the records a form writes.
-  const [tab, setTab] = useState<'none' | 'files' | 'data'>('none')
+  const [tab, setTab] = useState<'none' | 'pages' | 'files' | 'data'>('none')
   const [picking, setPicking] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
   const [workOpen, setWorkOpen] = useState(false)
   const [changesOpen, setChangesOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [questionsOpen, setQuestionsOpen] = useState(false)
+  const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
+  const [designOpen, setDesignOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
+  const [internalCloudOpen, setInternalCloudOpen] = useState(false)
+  const [layoutReads, setLayoutReads] = useState<Record<string, LayoutRead | null>>({})
+  const [checkingResponsive, setCheckingResponsive] = useState(false)
+  const cloudOpen = cloudShareOpen ?? internalCloudOpen
+  const setCloudOpen = useCallback(
+    (next: boolean) => {
+      setInternalCloudOpen(next)
+      onCloudShareOpenChange?.(next)
+    },
+    [onCloudShareOpenChange],
+  )
   /** Which of the two sites is on the stage. */
   const [side, setSide] = useState<'draft' | 'live' | 'both'>('draft')
   const [livePage, setLivePage] = useState<{
@@ -450,8 +504,56 @@ export function SiteBoardView({
   )
   const showData = siteNeedsData({ pages: document.pages, collections })
 
+  const auditReport = useMemo(
+    () =>
+      runPreflightAudit({
+        document,
+        selectedPage,
+        findings,
+        material,
+        layoutReads,
+      }),
+    [document, selectedPage, findings, material, layoutReads],
+  )
+
+  const handleAuditFix = useCallback(
+    (action: AuditFixAction) => {
+      switch (action.kind) {
+        case 'set-lang':
+          onUpdatePageHead?.(action.page, { lang: action.lang })
+          break
+        case 'add-404':
+          onAdd404Page?.()
+          break
+        case 'open-seo':
+          onSelectPage(action.page)
+          setSeoOpen(true)
+          setAuditOpen(false)
+          break
+        case 'open-design':
+          setAuditOpen(false)
+          setDesignOpen(true)
+          break
+        case 'open-page':
+          onSelectPage(action.page)
+          setAuditOpen(false)
+          break
+      }
+    },
+    [onAdd404Page, onSelectPage, onUpdatePageHead],
+  )
+
   const anyModalOpen =
-    modalOpen || mapOpen || workOpen || changesOpen || questionsOpen || promise !== null
+    modalOpen ||
+    mapOpen ||
+    workOpen ||
+    changesOpen ||
+    questionsOpen ||
+    sectionPickerOpen ||
+    designOpen ||
+    auditOpen ||
+    cloudOpen ||
+    promise !== null
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -460,15 +562,15 @@ export function SiteBoardView({
         typeof target?.closest === 'function' &&
           target.closest('input, textarea, select, [contenteditable]'),
       )
-      // ⌘K belongs to the shell, which jumps between files and apps. Inside
-      // the site, ⌘P is the one box for its pages, promises and asks.
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
+      // ⌘P is the site command palette; ⌘K acts as a clean fallback when not captured by the shell.
+      const key = event.key.toLowerCase()
+      if ((event.metaKey || event.ctrlKey) && (key === 'p' || key === 'k')) {
         if (compact || inEditable || anyModalOpen) return
         event.preventDefault()
         setFindOpen(open => !open)
         return
       }
-      if (compact || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'm') return
+      if (compact || !(event.metaKey || event.ctrlKey) || key !== 'm') return
       // Typing in the ask box, a page title or a file description is not a
       // request for the map.
       if (inEditable || modalOpen) return
@@ -545,7 +647,66 @@ export function SiteBoardView({
     <Board $strip={tab !== 'none' && !compact}>
       {tab === 'none' ? null : (
       <Strip {...hidden}>
-        {tab === 'data' ? (
+        {tab === 'pages' ? (
+          <Files role="region" aria-label="Site pages">
+            <PagesStripHead>
+              <Meta>{pages.length} page{pages.length === 1 ? '' : 's'}</Meta>
+              <ScopeButton type="button" onClick={onAddPage}>
+                + New page
+              </ScopeButton>
+            </PagesStripHead>
+            <PageTreeList>
+              {pages.map((page, index) => {
+                const active = page.path === selectedPage
+                return (
+                  <PageTreeRow key={page.path} $active={active}>
+                    <PageTreeBtn
+                      type="button"
+                      aria-current={active ? 'page' : undefined}
+                      onClick={() => {
+                        if (commitFrame.current) commitFrame.current(() => onSelectPage(page.path))
+                        else onSelectPage(page.path)
+                      }}
+                    >
+                      <PageTreeTitle>{page.title || page.path}</PageTreeTitle>
+                      <PageTreePath>{urlPathFor(page.path)}</PageTreePath>
+                    </PageTreeBtn>
+                    <PageTreeOps>
+                      <MiniIconBtn
+                        type="button"
+                        aria-label={`Move ${page.path} up`}
+                        title="Move up"
+                        disabled={index === 0}
+                        onClick={() => onMovePage(index, index - 1)}
+                      >
+                        ↑
+                      </MiniIconBtn>
+                      <MiniIconBtn
+                        type="button"
+                        aria-label={`Move ${page.path} down`}
+                        title="Move down"
+                        disabled={index === pages.length - 1}
+                        onClick={() => onMovePage(index, index + 1)}
+                      >
+                        ↓
+                      </MiniIconBtn>
+                      {onDuplicatePage ? (
+                        <MiniIconBtn
+                          type="button"
+                          aria-label={`Duplicate ${page.path}`}
+                          title="Duplicate page"
+                          onClick={() => onDuplicatePage(page.path)}
+                        >
+                          ⧉
+                        </MiniIconBtn>
+                      ) : null}
+                    </PageTreeOps>
+                  </PageTreeRow>
+                )
+              })}
+            </PageTreeList>
+          </Files>
+        ) : tab === 'data' ? (
           <Files>
             {!dataProvider ? (
               <Hint>
@@ -787,6 +948,14 @@ export function SiteBoardView({
         ) : null}
         <Head {...hidden}>
           <Tabs>
+            <Tab
+              type="button"
+              data-active={tab === 'pages' ? '' : undefined}
+              onClick={() => setTab(current => (current === 'pages' ? 'none' : 'pages'))}
+              title="Browse, switch, duplicate and reorder pages"
+            >
+              Pages
+            </Tab>
             {agents ? (
               <Tab
                 type="button"
@@ -799,7 +968,7 @@ export function SiteBoardView({
             <Tab
               type="button"
               onClick={() => setFindOpen(true)}
-              title="Find a page, build a promise, or ask (⌘P)"
+              title="Find a page, build a promise, or run a command (⌘P / ⌘K)"
             >
               Find
             </Tab>
@@ -827,6 +996,42 @@ export function SiteBoardView({
               </Tab>
             ) : null}
           </Tabs>
+          <Sep aria-hidden />
+          {onInsertSection ? (
+            <ToolbarButton
+              type="button"
+              title="Insert a responsive Swiss-editorial HTML section into this page"
+              onClick={() => setSectionPickerOpen(true)}
+            >
+              Insert section
+            </ToolbarButton>
+          ) : null}
+          {onApplyDesignTokens ? (
+            <ToolbarButton
+              type="button"
+              data-active={designOpen ? '' : undefined}
+              title="Edit colour tokens, WCAG contrast, fonts, measure and presets"
+              onClick={() => setDesignOpen(true)}
+            >
+              Design
+            </ToolbarButton>
+          ) : null}
+          <ToolbarButton
+            type="button"
+            data-active={auditOpen ? '' : undefined}
+            title={`Pre-flight SEO, accessibility and responsive audit (${auditReport.score}/100)`}
+            onClick={() => setAuditOpen(true)}
+          >
+            Audit · {auditReport.score}
+          </ToolbarButton>
+          <ToolbarButton
+            type="button"
+            data-active={cloudOpen ? '' : undefined}
+            title="Publish to PureCloud /s/ link, roll back versions, and read form submissions"
+            onClick={() => setCloudOpen(true)}
+          >
+            Cloud link
+          </ToolbarButton>
           <span style={{ flex: 1 }} />
           <Meta>
             {pages.length} page{pages.length === 1 ? '' : 's'} ·{' '}
@@ -1431,12 +1636,18 @@ export function SiteBoardView({
             <SectionLabel {...elementRefs(picked.path, picked.label || 'Selected element')}>
               SELECTED · {picked.label}
             </SectionLabel>
-            <PickedControls
+            <ElementQuickControls
               html={html}
               picked={picked}
               material={material}
               onText={text => onSetElementText(selectedPage, picked.path, text)}
               onSrc={src => onSetElementSrc(selectedPage, picked.path, src)}
+              onMove={onMoveElement ? dir => onMoveElement(selectedPage, picked.path, dir) : undefined}
+              onDuplicate={onDuplicateElement ? () => onDuplicateElement(selectedPage, picked.path) : undefined}
+              onDelete={onDeleteElement ? () => onDeleteElement(selectedPage, picked.path) : undefined}
+              onSetLink={onSetElementLink ? input => onSetElementLink(selectedPage, picked.path, input) : undefined}
+              onSetAlt={onSetElementAlt ? alt => onSetElementAlt(selectedPage, picked.path, alt) : undefined}
+              onSetLayout={onSetElementLayout ? patch => onSetElementLayout(selectedPage, picked.path, patch) : undefined}
               onClear={() => onSelectElement(null)}
             />
           </>
@@ -1652,8 +1863,69 @@ export function SiteBoardView({
           onOpenMap={() => setMapOpen(true)}
           onOpenWork={() => setWorkOpen(true)}
           onAddPage={onAddPage}
+          onInsertSection={onInsertSection ? () => setSectionPickerOpen(true) : undefined}
+          onOpenDesign={onApplyDesignTokens ? () => setDesignOpen(true) : undefined}
+          onOpenAudit={() => setAuditOpen(true)}
+          onOpenCloudShare={() => setCloudOpen(true)}
+          onTogglePagesRail={() => setTab(current => (current === 'pages' ? 'none' : 'pages'))}
+          onSwitchViewport={onViewport}
+          onToggleSource={
+            onWritePageSource || onWriteStylesSource
+              ? () => openSourceDrawer(!sourceOpen)
+              : undefined
+          }
+          onPublish={output ? onPublish : undefined}
           onAsk={agents ? onAsk : undefined}
           onClose={() => setFindOpen(false)}
+        />
+      ) : null}
+
+      {onInsertSection && !compact ? (
+        <SectionPickerModal
+          open={sectionPickerOpen}
+          pageName={selectedPage}
+          onInsert={sectionId => onInsertSection(selectedPage, sectionId)}
+          onClose={() => setSectionPickerOpen(false)}
+        />
+      ) : null}
+
+      {onApplyDesignTokens && !compact ? (
+        <DesignStudioDrawer
+          open={designOpen}
+          styles={document.styles}
+          onApply={onApplyDesignTokens}
+          onClose={() => setDesignOpen(false)}
+        />
+      ) : null}
+
+      {!compact ? (
+        <PreflightAuditDrawer
+          open={auditOpen}
+          report={auditReport}
+          checkingResponsive={checkingResponsive}
+          onRunResponsiveCheck={
+            onCheckResponsive
+              ? () => {
+                  setCheckingResponsive(true)
+                  void onCheckResponsive(selectedPage)
+                    .then(reads => setLayoutReads(reads))
+                    .finally(() => setCheckingResponsive(false))
+                }
+              : undefined
+          }
+          onFix={handleAuditFix}
+          onClose={() => setAuditOpen(false)}
+        />
+      ) : null}
+
+      {!compact ? (
+        <CloudShareDrawer
+          open={cloudOpen}
+          document={document}
+          previews={previews}
+          onOpenUrl={onOpenExternalUrl}
+          onStatusMessage={onStatusMessage}
+          onClose={() => setCloudOpen(false)}
         />
       ) : null}
 
@@ -1916,98 +2188,90 @@ function PageSeoEditor({
   )
 }
 
-/**
- * What you can do to the element you clicked.
- *
- * Text on a leaf, a picture on an image or an empty box. A container offers
- * nothing, because the honest answer for one is "edit the HTML".
- */
-function PickedControls({
-  html,
-  picked,
-  material,
-  onText,
-  onSrc,
-  onClear,
-}: {
-  html: string
-  picked: SiteSelection
-  material: MaterialItem[]
-  onText: (text: string) => void
-  onSrc: (src: string) => void
-  onClear: () => void
-}): React.ReactElement {
-  // The same reading the tests cover — not a second hand-rolled walk.
-  const info = useMemo(() => readElement(html, picked.path), [html, picked.path])
-  const [textDraft, setTextDraft] = useState(info?.text ?? '')
-  useEffect(() => {
-    setTextDraft(info?.text ?? '')
-  }, [picked.path, info?.text])
-
-  const images = material.filter(item => item.kind === 'image' && item.role !== 'reference')
-
-  if (!info) {
-    return <Hint>That element is gone — pick another.</Hint>
-  }
-
-  const canPlaceImage = info.isImage || (info.editableText && !info.text.trim())
-
-  const commitText = (): void => {
-    if (textDraft !== info.text) onText(textDraft)
-  }
-
-  return (
-    <Picked>
-      {info.editableText ? (
-        <Input
-          value={textDraft}
-          aria-label="Element text"
-          onChange={event => setTextDraft(event.currentTarget.value)}
-          onBlur={commitText}
-          onKeyDown={event => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              event.currentTarget.blur()
-            }
-          }}
-        />
-      ) : null}
-      {canPlaceImage ? (
-        <RoleSelect
-          $set={false}
-          value=""
-          aria-label="Put an image here"
-          onChange={event => {
-            if (event.currentTarget.value) onSrc(event.currentTarget.value)
-          }}
-        >
-          <option value="">
-            {info.isImage ? 'Replace image…' : 'Put an image here…'}
-          </option>
-          {images.map(item => (
-            <option key={item.name} value={item.reference}>
-              {item.name}
-            </option>
-          ))}
-        </RoleSelect>
-      ) : null}
-      {!info.editableText && !info.isImage ? (
-        <Hint>
-          A container holds other elements — change it in the HTML, or ask.
-        </Hint>
-      ) : null}
-      <ScopeButton type="button" onClick={onClear}>
-        Clear selection
-      </ScopeButton>
-    </Picked>
-  )
-}
-
 /** Typed loosely on purpose: styled-components' attrs rejects data-* literals. */
 const chrome = (kind: string, extra: Record<string, string> = {}): Record<string, string> => ({
   'data-chrome': kind,
   ...extra,
 })
+
+const PagesStripHead = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+`
+
+const PageTreeList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`
+
+const PageTreeRow = styled.div<{ $active: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid ${({ $active }) => ($active ? 'var(--p-text, #b3546c)' : 'var(--pure-chrome-line)')};
+  border-radius: 3px;
+  background: ${({ $active }) => ($active ? 'var(--p-chosen, #f6e7eb)' : 'var(--pure-chrome-surface)')};
+`
+
+const PageTreeBtn = styled.button`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--n-ink, #14171a);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+`
+
+const PageTreeTitle = styled.span`
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`
+
+const PageTreePath = styled.span`
+  font-family: var(--platform-typography-font-family-mono, monospace);
+  font-size: 10.5px;
+  color: var(--n-faint, #666c75);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`
+
+const PageTreeOps = styled.div`
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+`
+
+const MiniIconBtn = styled.button`
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--n-line, #c8ccd2);
+  border-radius: 3px;
+  background: var(--n-sheet, #ffffff);
+  color: var(--n-ink, #14171a);
+  font-size: 11px;
+  cursor: pointer;
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+`
 
 /** Site map on the left, the page in the middle, the inspector on the right: two platform sidebars. */
 const Board = styled.div<{ $strip: boolean }>`

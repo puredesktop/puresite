@@ -85,6 +85,7 @@ export function PublishDialog({
   onExportStaticSite,
   has404 = true,
   onAdd404Page,
+  onOpenCloudShare,
   onClose,
   cloud,
 }: {
@@ -119,6 +120,8 @@ export function PublishDialog({
   has404?: boolean
   /** Create a starter 404.html page. */
   onAdd404Page?: () => void
+  /** Open the PureCloud Instant Publish, Version Rollback & Form Inbox drawer. */
+  onOpenCloudShare?: () => void
   onClose: () => void
   /** The package and how to save it first, for publishing to the organisation's site on PureCloud. */
   cloud?: { root: string | null; prepare: () => Promise<void> }
@@ -168,6 +171,26 @@ export function PublishDialog({
           <span style={{ flex: 1 }} />
           <Mono>{service?.anonymous ? 'no account needed' : 'static host'}</Mono>
         </Head>
+
+        {onOpenCloudShare ? (
+          <Section>
+            <SectionLabel>PURECLOUD INSTANT LINK</SectionLabel>
+            <CloudRow>
+              <Clean>
+                Publish directly to PureServer <code>/s/&lt;slug&gt;/</code> with passcode, version rollback, and Form Inbox.
+              </Clean>
+              <GhostButton
+                type="button"
+                onClick={() => {
+                  onClose()
+                  onOpenCloudShare()
+                }}
+              >
+                Open PureCloud Share…
+              </GhostButton>
+            </CloudRow>
+          </Section>
+        ) : null}
 
         {cloud && cloudOffered() ? (
           <CloudSection
