@@ -173,7 +173,7 @@ export function NewSiteWizard({
         <PlaybooksShelf
           app="site"
           onRunPlaybook={(pb: PlaybookDefinition) => {
-            if (pb.templateId && onUseTemplate) {
+            if (pb.templateId && onUseTemplate && SITE_TEMPLATES.some(t => t.id === pb.templateId)) {
               onUseTemplate(pb.templateId)
               return
             }

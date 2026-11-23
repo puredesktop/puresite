@@ -68,7 +68,7 @@ import { isSafeHttpUrl } from '../lib/publishServices'
 import { requiredAssetNames } from '../lib/buildSite'
 import { primaryLook, quiet } from '../ui/look'
 import { APP_ACCENT, VIEWPORTS, type ViewportId } from '../constants'
-import { urlPathFor, type SiteDocument, type SitePage } from '../lib/siteDocument'
+import { escapeHtml, urlPathFor, type SiteDocument, type SitePage } from '../lib/siteDocument'
 import type { AssetRole } from '../lib/assetNotes'
 import type { CheckFinding } from '../lib/buildSite'
 import { siteNeedsData, type Collection, type DataProvider } from '../lib/siteData'
@@ -77,6 +77,16 @@ import { verificationBadge, type SiteVerification } from '../lib/siteVerificatio
 import { revisionLabel, type RevisionEntry } from '@purescience/platform-ui/editing/revisionHistory'
 import { assetRefs, collectionRefs, elementRefs, pageRefs, revisionRefs, withOpenSurface } from '../agentRefs'
 
+
+function appendSnippetToPageHtml(curHtml: string, snippet: string): string {
+  if (/<\/main>/i.test(curHtml)) {
+    return curHtml.replace(/<\/main>/i, match => `${snippet}${match}`)
+  }
+  if (/<\/body>/i.test(curHtml)) {
+    return curHtml.replace(/<\/body>/i, match => `${snippet}${match}`)
+  }
+  return `${curHtml}\n${snippet}`
+}
 
 export function SiteBoardView({
   document,
@@ -1988,24 +1998,20 @@ export function SiteBoardView({
                 const m = ds.metrics.find(item => item.key === metricKey)
                 const curHtml = document.pages[selectedPage]
                 if (!m || !curHtml) return
-                const attr = bindMetricAttr(ds.id, m.key)
-                const snippet = `<section style="padding:2rem var(--gutter,1.5rem);border-top:1px solid var(--line,#e2e5e8)"><div style="max-width:var(--max,72rem);margin:0 auto"><strong data-live-bind="${attr}" style="font-size:2.2rem;display:block">${m.value}</strong><span style="opacity:0.7">${m.label}</span></div></section>`
-                const nextHtml = /<\/main>/i.test(curHtml)
-                  ? curHtml.replace(/<\/main>/i, `${snippet}</main>`)
-                  : curHtml.replace(/<\/body>/i, `${snippet}</body>`)
+                const attr = escapeHtml(bindMetricAttr(ds.id, m.key))
+                const snippet = `<section style="padding:2rem var(--gutter,1.5rem);border-top:1px solid var(--line,#e2e5e8)"><div style="max-width:var(--max,72rem);margin:0 auto"><strong data-live-bind="${attr}" style="font-size:2.2rem;display:block">${escapeHtml(m.value)}</strong><span style="opacity:0.7">${escapeHtml(m.label)}</span></div></section>`
+                const nextHtml = appendSnippetToPageHtml(curHtml, snippet)
                 onWritePageSource?.(selectedPage, nextHtml)
                 setLiveRefreshSummary(`Bound "${m.label}" (${m.value}) onto ${selectedPage}.`)
               }}
               onInsertTable={(ds: LiveDataset) => {
                 const curHtml = document.pages[selectedPage]
                 if (!curHtml) return
-                const attr = bindTableAttr(ds.id)
-                const ths = ds.table.headers.map(h => `<th>${h}</th>`).join('')
-                const trs = ds.table.rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')
+                const attr = escapeHtml(bindTableAttr(ds.id))
+                const ths = ds.table.headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')
+                const trs = ds.table.rows.map(r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')
                 const snippet = `<section style="padding:2rem var(--gutter,1.5rem)"><div style="max-width:var(--max,72rem);margin:0 auto"><table data-live-bind="${attr}" style="width:100%;border-collapse:collapse"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div></section>`
-                const nextHtml = /<\/main>/i.test(curHtml)
-                  ? curHtml.replace(/<\/main>/i, `${snippet}</main>`)
-                  : curHtml.replace(/<\/body>/i, `${snippet}</body>`)
+                const nextHtml = appendSnippetToPageHtml(curHtml, snippet)
                 onWritePageSource?.(selectedPage, nextHtml)
                 setLiveRefreshSummary(`Bound table (${ds.table.rows.length} rows) onto ${selectedPage}.`)
               }}
@@ -2036,9 +2042,7 @@ export function SiteBoardView({
             const curHtml = document.pages[selectedPage]
             if (!curHtml) return
             const htmlBlock = transformToSiteSectionHtml(env)
-            const nextHtml = /<\/main>/i.test(curHtml)
-              ? curHtml.replace(/<\/main>/i, `${htmlBlock}</main>`)
-              : curHtml.replace(/<\/body>/i, `${htmlBlock}</body>`)
+            const nextHtml = appendSnippetToPageHtml(curHtml, htmlBlock)
             onWritePageSource?.(selectedPage, nextHtml)
             onStatusMessage?.(`Imported "${env.title}" from ${env.sourceApp}.`)
           }}

@@ -543,7 +543,10 @@ export function CloudShareDrawer({
                         heading: path,
                         body: html.replace(/<(style|script)[\s\S]*?<\/\1>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 320),
                       })),
-                    }).then(() => onStatusMessage?.(`Sent "${document.manifest.title || 'Site'}" to ${dest.label.replace('Send to ', '')}.`))
+                    }).then(
+                      () => onStatusMessage?.(`Sent "${document.manifest.title || 'Site'}" to ${dest.label.replace('Send to ', '')}.`),
+                      () => onStatusMessage?.(`Could not send "${document.manifest.title || 'Site'}" to ${dest.label.replace('Send to ', '')}.`),
+                    )
                   }}
                 >
                   {dest.label}
