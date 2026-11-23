@@ -14,6 +14,7 @@ import { ASSET_ROLES, type MaterialItem } from '../lib/material'
 import { suggestedName } from '../lib/assetNames'
 import { APP_ACCENT } from '../constants'
 import { SITE_TEMPLATES } from '../lib/siteTemplates'
+import { PlaybooksShelf, type PlaybookDefinition } from '@purescience/platform-ui/suite'
 import type { AssetRole } from '../lib/assetNotes'
 import type { TargetProfile } from '../lib/siteDocument'
 
@@ -168,6 +169,17 @@ export function NewSiteWizard({
         <Title>New site</Title>
 
         {error ? <WizardError role="alert">{error}</WizardError> : null}
+
+        <PlaybooksShelf
+          app="site"
+          onRunPlaybook={(pb: PlaybookDefinition) => {
+            if (pb.templateId && onUseTemplate) {
+              onUseTemplate(pb.templateId)
+              return
+            }
+            onBrief(pb.agentRecipe || pb.description)
+          }}
+        />
 
         {onUseTemplate ? (
           <Field>

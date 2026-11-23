@@ -26,6 +26,7 @@ import {
 } from '../lib/pureCloudSiteClient'
 import type { SiteDocument } from '../lib/siteDocument'
 import { primaryLook, quiet } from '../ui/look'
+import { sendTransformEnvelope, type SuiteAppId } from '@purescience/platform-ui/suite'
 
 type TabId = 'publish' | 'versions' | 'forms'
 type ExpiryOption = 'never' | '24h' | '7d' | '30d'
@@ -517,6 +518,39 @@ export function CloudShareDrawer({
               </List>
             </>
           ) : null}
+
+          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--n-line, #d4d7dc)', display: 'grid', gap: '8px' }}>
+            <Label>Transform / Send to another Pure app</Label>
+            <Row>
+              {(
+                [
+                  { target: 'pureslides', label: 'Send to PureSlides' },
+                  { target: 'canvas2', label: 'Send to PureCanvas' },
+                  { target: 'purewriter', label: 'Send to PureWriter' },
+                ] as Array<{ target: SuiteAppId; label: string }>
+              ).map(dest => (
+                <SmallBtn
+                  key={dest.target}
+                  type="button"
+                  onClick={() => {
+                    const pageEntries = Object.entries(document.pages)
+                    void sendTransformEnvelope({
+                      sourceApp: 'puresite',
+                      targetApp: dest.target,
+                      title: document.manifest.title || 'PureSite',
+                      subtitle: `${pageEntries.length}-page site`,
+                      sections: pageEntries.map(([path, html]) => ({
+                        heading: path,
+                        body: html.replace(/<(style|script)[\s\S]*?<\/\1>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 320),
+                      })),
+                    }).then(() => onStatusMessage?.(`Sent "${document.manifest.title || 'Site'}" to ${dest.label.replace('Send to ', '')}.`))
+                  }}
+                >
+                  {dest.label}
+                </SmallBtn>
+              ))}
+            </Row>
+          </div>
         </Body>
       </Drawer>
     </Scrim>

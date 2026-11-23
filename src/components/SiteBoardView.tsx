@@ -33,6 +33,16 @@ import { ElementQuickControls } from './ElementQuickControls'
 import { DesignStudioDrawer } from './DesignStudioDrawer'
 import { PreflightAuditDrawer } from './PreflightAuditDrawer'
 import { CloudShareDrawer } from './CloudShareDrawer'
+import {
+  bindMetricAttr,
+  bindTableAttr,
+  LiveDataPanel,
+  refreshHtmlLiveBindings,
+  transformToSiteSectionHtml,
+  WorkspaceThreadStrip,
+  type LiveDataset,
+  type TransformEnvelope,
+} from '@purescience/platform-ui/suite'
 import { runPreflightAudit, type AuditFixAction } from '../lib/preflightAudit'
 import type { DesignTokens } from '../lib/designTokens'
 import type { LayoutRead } from '../lib/responsiveCheck'
@@ -267,6 +277,8 @@ export function SiteBoardView({
   const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
   const [designOpen, setDesignOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
+  const [liveDataOpen, setLiveDataOpen] = useState(false)
+  const [liveRefreshSummary, setLiveRefreshSummary] = useState<string | null>(null)
   const [internalCloudOpen, setInternalCloudOpen] = useState(false)
   const [layoutReads, setLayoutReads] = useState<Record<string, LayoutRead | null>>({})
   const [checkingResponsive, setCheckingResponsive] = useState(false)
@@ -1023,6 +1035,14 @@ export function SiteBoardView({
             onClick={() => setAuditOpen(true)}
           >
             Audit · {auditReport.score}
+          </ToolbarButton>
+          <ToolbarButton
+            type="button"
+            data-active={liveDataOpen ? '' : undefined}
+            title="Bind or refresh live KPIs & tables from PureSheets / PureCloud"
+            onClick={() => setLiveDataOpen(true)}
+          >
+            Live data
           </ToolbarButton>
           <ToolbarButton
             type="button"
@@ -1926,6 +1946,102 @@ export function SiteBoardView({
           onOpenUrl={onOpenExternalUrl}
           onStatusMessage={onStatusMessage}
           onClose={() => setCloudOpen(false)}
+        />
+      ) : null}
+
+      {!compact && liveDataOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Live PureSheets data"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(12,12,14,0.34)',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            zIndex: 60,
+          }}
+          onClick={() => setLiveDataOpen(false)}
+        >
+          <div
+            style={{
+              width: 'min(420px, 95vw)',
+              height: '100%',
+              background: 'var(--n-sheet, #ffffff)',
+              borderLeft: '1px solid var(--n-line, #c8ccd2)',
+              padding: '16px',
+              overflow: 'auto',
+              display: 'grid',
+              gap: '12px',
+              alignContent: 'start',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong style={{ fontSize: '14px' }}>Live PureSheets Data</strong>
+              <ToolbarButton type="button" onClick={() => setLiveDataOpen(false)}>Close</ToolbarButton>
+            </div>
+            <LiveDataPanel
+              lastRefreshSummary={liveRefreshSummary}
+              onInsertMetric={(ds: LiveDataset, metricKey: string) => {
+                const m = ds.metrics.find(item => item.key === metricKey)
+                const curHtml = document.pages[selectedPage]
+                if (!m || !curHtml) return
+                const attr = bindMetricAttr(ds.id, m.key)
+                const snippet = `<section style="padding:2rem var(--gutter,1.5rem);border-top:1px solid var(--line,#e2e5e8)"><div style="max-width:var(--max,72rem);margin:0 auto"><strong data-live-bind="${attr}" style="font-size:2.2rem;display:block">${m.value}</strong><span style="opacity:0.7">${m.label}</span></div></section>`
+                const nextHtml = /<\/main>/i.test(curHtml)
+                  ? curHtml.replace(/<\/main>/i, `${snippet}</main>`)
+                  : curHtml.replace(/<\/body>/i, `${snippet}</body>`)
+                onWritePageSource?.(selectedPage, nextHtml)
+                setLiveRefreshSummary(`Bound "${m.label}" (${m.value}) onto ${selectedPage}.`)
+              }}
+              onInsertTable={(ds: LiveDataset) => {
+                const curHtml = document.pages[selectedPage]
+                if (!curHtml) return
+                const attr = bindTableAttr(ds.id)
+                const ths = ds.table.headers.map(h => `<th>${h}</th>`).join('')
+                const trs = ds.table.rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')
+                const snippet = `<section style="padding:2rem var(--gutter,1.5rem)"><div style="max-width:var(--max,72rem);margin:0 auto"><table data-live-bind="${attr}" style="width:100%;border-collapse:collapse"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div></section>`
+                const nextHtml = /<\/main>/i.test(curHtml)
+                  ? curHtml.replace(/<\/main>/i, `${snippet}</main>`)
+                  : curHtml.replace(/<\/body>/i, `${snippet}</body>`)
+                onWritePageSource?.(selectedPage, nextHtml)
+                setLiveRefreshSummary(`Bound table (${ds.table.rows.length} rows) onto ${selectedPage}.`)
+              }}
+              onRefreshAll={(datasets: LiveDataset[]) => {
+                let total = 0
+                for (const [pagePath, curHtml] of Object.entries(document.pages)) {
+                  const res = refreshHtmlLiveBindings(curHtml, datasets)
+                  if (res.updatedCount > 0) {
+                    total += res.updatedCount
+                    onWritePageSource?.(pagePath, res.html)
+                  }
+                }
+                setLiveRefreshSummary(
+                  total > 0
+                    ? `Refreshed ${total} live bound value(s) across site.`
+                    : 'No live-bound KPIs or tables on this site yet — click a KPI above to bind one.',
+                )
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {!compact ? (
+        <WorkspaceThreadStrip
+          app="puresite"
+          onApplyTransform={(env: TransformEnvelope) => {
+            const curHtml = document.pages[selectedPage]
+            if (!curHtml) return
+            const htmlBlock = transformToSiteSectionHtml(env)
+            const nextHtml = /<\/main>/i.test(curHtml)
+              ? curHtml.replace(/<\/main>/i, `${htmlBlock}</main>`)
+              : curHtml.replace(/<\/body>/i, `${htmlBlock}</body>`)
+            onWritePageSource?.(selectedPage, nextHtml)
+            onStatusMessage?.(`Imported "${env.title}" from ${env.sourceApp}.`)
+          }}
         />
       ) : null}
 
