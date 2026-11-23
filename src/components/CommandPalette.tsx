@@ -3,6 +3,7 @@ import { styled } from 'styled-components'
 import { siteLinkTheme } from './siteLinkTheme'
 import type { SiteLinkGraph } from '../lib/siteLinks'
 import { orderedPages, titleFromPage, urlPathFor, type SiteDocument } from '../lib/siteDocument'
+import type { ViewportId } from '../constants'
 
 /** One thing the box can do with what has been typed. */
 interface Command {
@@ -29,6 +30,14 @@ export function CommandPalette({
   onOpenMap,
   onOpenWork,
   onAddPage,
+  onInsertSection,
+  onOpenDesign,
+  onOpenAudit,
+  onOpenCloudShare,
+  onTogglePagesRail,
+  onSwitchViewport,
+  onToggleSource,
+  onPublish,
   onAsk,
   onClose,
 }: {
@@ -39,6 +48,14 @@ export function CommandPalette({
   onOpenMap: () => void
   onOpenWork: () => void
   onAddPage: () => void
+  onInsertSection?: () => void
+  onOpenDesign?: () => void
+  onOpenAudit?: () => void
+  onOpenCloudShare?: () => void
+  onTogglePagesRail?: () => void
+  onSwitchViewport?: (viewport: ViewportId) => void
+  onToggleSource?: () => void
+  onPublish?: () => void
   /** Absent where this person has no agents: the palette only finds. */
   onAsk?: (request: string) => void
   onClose: () => void
@@ -81,11 +98,106 @@ export function CommandPalette({
       run: () => onBuildPromise(promise.path),
     }))
     const doing: Command[] = [
+      ...(onInsertSection
+        ? [{
+            id: 'do:insert-section',
+            kind: 'do' as const,
+            label: 'Insert section',
+            detail: 'Hero, Split, Grid, Pricing, FAQ, Contact Form, Footer',
+            run: onInsertSection,
+          }]
+        : []),
+      ...(onOpenDesign
+        ? [{
+            id: 'do:design',
+            kind: 'do' as const,
+            label: 'Design Studio',
+            detail: 'Edit colours, WCAG contrast, fonts, measure & presets',
+            run: onOpenDesign,
+          }]
+        : []),
+      ...(onOpenAudit
+        ? [{
+            id: 'do:audit',
+            kind: 'do' as const,
+            label: 'Pre-Flight Audit',
+            detail: 'SEO & Google/OG previews, accessibility & responsive check',
+            run: onOpenAudit,
+          }]
+        : []),
+      ...(onOpenCloudShare
+        ? [{
+            id: 'do:cloud-share',
+            kind: 'do' as const,
+            label: 'PureCloud Share & Form Inbox',
+            detail: 'Instant /s/ link, version rollback & form submissions',
+            run: onOpenCloudShare,
+          }]
+        : []),
+      ...(onTogglePagesRail
+        ? [{
+            id: 'do:pages-rail',
+            kind: 'do' as const,
+            label: 'Toggle Pages rail',
+            detail: 'Browse, reorder, duplicate and switch pages',
+            run: onTogglePagesRail,
+          }]
+        : []),
+      ...(onToggleSource
+        ? [{
+            id: 'do:source',
+            kind: 'do' as const,
+            label: 'Toggle HTML / CSS Source drawer',
+            detail: 'Inspect or edit page HTML and styles/site.css',
+            run: onToggleSource,
+          }]
+        : []),
+      ...(onSwitchViewport
+        ? [
+            {
+              id: 'do:vp-phone',
+              kind: 'do' as const,
+              label: 'Switch viewport: Phone (390px)',
+              detail: 'Preview at mobile width',
+              run: () => onSwitchViewport('phone'),
+            },
+            {
+              id: 'do:vp-tablet',
+              kind: 'do' as const,
+              label: 'Switch viewport: Tablet (768px)',
+              detail: 'Preview at tablet width',
+              run: () => onSwitchViewport('tablet'),
+            },
+            {
+              id: 'do:vp-desktop',
+              kind: 'do' as const,
+              label: 'Switch viewport: Desktop (1280px)',
+              detail: 'Preview at desktop width',
+              run: () => onSwitchViewport('desktop'),
+            },
+          ]
+        : []),
+      {
+        id: 'do:add',
+        kind: 'do',
+        label: 'New page',
+        detail: 'Add a blank page to this site',
+        run: onAddPage,
+      },
+      ...(onPublish
+        ? [{
+            id: 'do:publish',
+            kind: 'do' as const,
+            label: 'Publish site…',
+            detail: 'Build static files and deploy',
+            run: onPublish,
+          }]
+        : []),
       {
         id: 'do:map',
         kind: 'do',
         label: 'The map',
-        detail: 'The whole site as its links draw it',
+        detail: 'The whole site as its links draw it (⌘M)',
         run: onOpenMap,
       },
       {
@@ -94,13 +206,6 @@ export function CommandPalette({
         label: 'What is still owed',
         detail: 'Promises, and anything that would ship broken',
         run: onOpenWork,
-      },
-      {
-        id: 'do:add',
-        kind: 'do',
-        label: 'New page',
-        detail: 'A page nothing asked for yet',
-        run: onAddPage,
       },
     ]
     const matching = [...pages, ...promises, ...doing].filter(
@@ -119,8 +224,26 @@ export function CommandPalette({
           },
         ]
       : []
-    return [...matching.slice(0, 8), ...asking]
-  }, [typed, siteDocument, graph, onOpenPage, onBuildPromise, onOpenMap, onOpenWork, onAddPage, onAsk])
+    return [...matching.slice(0, 12), ...asking]
+  }, [
+    typed,
+    siteDocument,
+    graph,
+    onOpenPage,
+    onBuildPromise,
+    onOpenMap,
+    onOpenWork,
+    onAddPage,
+    onInsertSection,
+    onOpenDesign,
+    onOpenAudit,
+    onOpenCloudShare,
+    onTogglePagesRail,
+    onSwitchViewport,
+    onToggleSource,
+    onPublish,
+    onAsk,
+  ])
 
   useEffect(() => {
     setAt(0)

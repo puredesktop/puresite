@@ -407,18 +407,79 @@ export function elementAt(root: Element, path: string): Element | null {
   return element
 }
 
+export type ElementAlign = 'left' | 'center' | 'right' | ''
+export type ElementSpacing = 'tight' | 'normal' | 'loose' | ''
+
 export interface PickedElement {
   path: string
   label: string
+  tagName: string
+  breadcrumb: string[]
   editableText: boolean
   isImage: boolean
+  isLink: boolean
   text: string
   src: string
+  alt: string
+  href: string
+  newTab: boolean
+  align: ElementAlign
+  spacing: ElementSpacing
+  canMoveUp: boolean
+  canMoveDown: boolean
+  canDuplicate: boolean
+  canDelete: boolean
+  siblingIndex: number
+  siblingCount: number
 }
 
 function parsePage(html: string): Document | null {
   if (typeof DOMParser === 'undefined') return null
   return new DOMParser().parseFromString(html, 'text/html')
+}
+
+function breadcrumbFor(body: Element, path: string): string[] {
+  const parts = path.split('/').filter(Boolean)
+  const trail: string[] = []
+  let cursor: Element | null = body
+  for (const part of parts) {
+    if (!cursor) break
+    cursor = cursor.children[Number(part)] ?? null
+    if (!cursor) break
+    const tag = cursor.tagName.toLowerCase()
+    const id = cursor.getAttribute('id')
+    const cls = cursor.getAttribute('class')?.trim().split(/\s+/)[0]
+    trail.push(id ? `${tag}#${id}` : cls ? `${tag}.${cls}` : tag)
+  }
+  return trail
+}
+
+function pathOfElement(body: Element, target: Element): string {
+  const indices: number[] = []
+  let node: Element | null = target
+  while (node && node !== body) {
+    const parent: Element | null = node.parentElement
+    if (!parent) break
+    const index = Array.prototype.indexOf.call(parent.children, node)
+    if (index < 0) break
+    indices.unshift(index)
+    node = parent
+  }
+  return indices.join('/')
+}
+
+function readAlign(element: Element): ElementAlign {
+  const attr = element.getAttribute('data-align')?.trim().toLowerCase()
+  if (attr === 'left' || attr === 'center' || attr === 'right') return attr
+  const inline = (element.getAttribute('style') ?? '').toLowerCase()
+  const match = /text-align\s*:\s*(left|center|right)\b/.exec(inline)
+  return (match?.[1] as ElementAlign | undefined) ?? ''
+}
+
+function readSpacing(element: Element): ElementSpacing {
+  const attr = element.getAttribute('data-space')?.trim().toLowerCase()
+  if (attr === 'tight' || attr === 'normal' || attr === 'loose') return attr
+  return ''
 }
 
 export function readElement(html: string, path: string): PickedElement | null {
@@ -427,15 +488,35 @@ export function readElement(html: string, path: string): PickedElement | null {
   const element = elementAt(doc.body, path)
   if (!element) return null
   const isImage = element.tagName === 'IMG'
+  const linkNode = element.tagName === 'A' ? element : element.querySelector('a[href]')
+  const parent = element.parentElement
+  const siblings = parent ? Array.from(parent.children) : []
+  const siblingIndex = parent ? siblings.indexOf(element) : -1
+  const siblingCount = siblings.length
+  const notBody = element !== doc.body
   return {
     path,
     label: element.tagName.toLowerCase(),
+    tagName: element.tagName.toLowerCase(),
+    breadcrumb: breadcrumbFor(doc.body, path),
     // Only a leaf carries text: rewriting a container's textContent would
     // delete every child element inside it.
     editableText: !isImage && element.children.length === 0,
     isImage,
+    isLink: element.tagName === 'A' || Boolean(linkNode),
     text: element.textContent ?? '',
     src: isImage ? (element.getAttribute('src') ?? '') : '',
+    alt: isImage ? (element.getAttribute('alt') ?? '') : '',
+    href: linkNode ? (linkNode.getAttribute('href') ?? '') : '',
+    newTab: linkNode ? linkNode.getAttribute('target') === '_blank' : false,
+    align: readAlign(element),
+    spacing: readSpacing(element),
+    canMoveUp: notBody && siblingIndex > 0,
+    canMoveDown: notBody && siblingIndex >= 0 && siblingIndex < siblingCount - 1,
+    canDuplicate: notBody && Boolean(parent),
+    canDelete: notBody,
+    siblingIndex,
+    siblingCount,
   }
 }
 
@@ -735,5 +816,167 @@ export function deleteElement(html: string, path: string): string {
   const element = elementAt(doc.body, path)
   if (!element || element === doc.body) return html
   element.remove()
+  return serialize(doc)
+}
+
+/** Reorder an element among its siblings and report its new path. */
+export function moveElement(
+  html: string,
+  path: string,
+  direction: 'up' | 'down',
+): { html: string; nextPath: string } {
+  const doc = parsePage(html)
+  if (!doc?.body) return { html, nextPath: path }
+  const element = elementAt(doc.body, path)
+  if (!element || !element.parentElement || element === doc.body) {
+    return { html, nextPath: path }
+  }
+  const parent = element.parentElement
+  if (direction === 'up') {
+    const prev = element.previousElementSibling
+    if (!prev) return { html, nextPath: path }
+    parent.insertBefore(element, prev)
+  } else {
+    const next = element.nextElementSibling
+    if (!next) return { html, nextPath: path }
+    parent.insertBefore(element, next.nextElementSibling)
+  }
+  return { html: serialize(doc), nextPath: pathOfElement(doc.body, element) }
+}
+
+/** Clone an element directly after itself (stripping duplicate `id` attributes) and return its path. */
+export function duplicateElement(
+  html: string,
+  path: string,
+): { html: string; nextPath: string } {
+  const doc = parsePage(html)
+  if (!doc?.body) return { html, nextPath: path }
+  const element = elementAt(doc.body, path)
+  if (!element || !element.parentElement || element === doc.body) {
+    return { html, nextPath: path }
+  }
+  const clone = element.cloneNode(true) as Element
+  clone.removeAttribute('id')
+  for (const child of Array.from(clone.querySelectorAll('[id]'))) {
+    child.removeAttribute('id')
+  }
+  element.parentElement.insertBefore(clone, element.nextElementSibling)
+  return { html: serialize(doc), nextPath: pathOfElement(doc.body, clone) }
+}
+
+/** Update an anchor's `href` and `target="_blank"` safely (or wrap element text in a link). */
+export function setElementLink(
+  html: string,
+  path: string,
+  input: { href: string; newTab?: boolean },
+): string {
+  const trimmed = input.href.trim()
+  if (trimmed && !isSafeUrlScheme(trimmed)) return html
+  const doc = parsePage(html)
+  if (!doc?.body) return html
+  const element = elementAt(doc.body, path)
+  if (!element || element === doc.body) return html
+  let anchor: Element | null =
+    element.tagName === 'A' ? element : element.querySelector('a[href]')
+  if (!trimmed) {
+    if (anchor) {
+      if (anchor === element) {
+        anchor.removeAttribute('href')
+        anchor.removeAttribute('target')
+        anchor.removeAttribute('rel')
+      } else {
+        while (anchor.firstChild) anchor.parentElement?.insertBefore(anchor.firstChild, anchor)
+        anchor.remove()
+      }
+      return serialize(doc)
+    }
+    return html
+  }
+  if (!anchor) {
+    anchor = doc.createElement('a')
+    while (element.firstChild) anchor.appendChild(element.firstChild)
+    element.appendChild(anchor)
+  }
+  anchor.setAttribute('href', trimmed)
+  if (input.newTab) {
+    anchor.setAttribute('target', '_blank')
+    anchor.setAttribute('rel', 'noopener noreferrer')
+  } else {
+    anchor.removeAttribute('target')
+    if ((anchor.getAttribute('rel') ?? '').trim() === 'noopener noreferrer') {
+      anchor.removeAttribute('rel')
+    }
+  }
+  return serialize(doc)
+}
+
+/** Update an `<img>` element's `alt` attribute. */
+export function setElementAlt(html: string, path: string, alt: string): string {
+  const doc = parsePage(html)
+  if (!doc?.body) return html
+  const element = elementAt(doc.body, path)
+  if (!element || element.tagName !== 'IMG') return html
+  element.setAttribute('alt', alt)
+  return serialize(doc)
+}
+
+const SPACING_PADDING: Record<Exclude<ElementSpacing, ''>, string> = {
+  tight: 'var(--space-xs)',
+  normal: 'var(--space-m)',
+  loose: 'var(--space-xl)',
+}
+
+/** Set alignment and vertical spacing pills on an element without clobbering unrelated inline styles. */
+export function setElementLayout(
+  html: string,
+  path: string,
+  patch: { align?: ElementAlign; spacing?: ElementSpacing },
+): string {
+  const doc = parsePage(html)
+  if (!doc?.body) return html
+  const element = elementAt(doc.body, path)
+  if (!element || element === doc.body) return html
+
+  const styleMap = new Map<string, string>()
+  const existing = element.getAttribute('style') ?? ''
+  for (const decl of existing.split(';')) {
+    const idx = decl.indexOf(':')
+    if (idx < 0) continue
+    const prop = decl.slice(0, idx).trim().toLowerCase()
+    const val = decl.slice(idx + 1).trim()
+    if (prop && val) styleMap.set(prop, val)
+  }
+
+  if (patch.align !== undefined) {
+    if (patch.align) {
+      element.setAttribute('data-align', patch.align)
+      styleMap.set('text-align', patch.align)
+    } else {
+      element.removeAttribute('data-align')
+      styleMap.delete('text-align')
+    }
+  }
+
+  if (patch.spacing !== undefined) {
+    if (patch.spacing) {
+      element.setAttribute('data-space', patch.spacing)
+      styleMap.set('padding-block', SPACING_PADDING[patch.spacing])
+    } else {
+      element.removeAttribute('data-space')
+      styleMap.delete('padding-block')
+    }
+  }
+
+  if (styleMap.size) {
+    element.setAttribute(
+      'style',
+      Array.from(styleMap.entries())
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('; '),
+    )
+  } else {
+    element.removeAttribute('style')
+  }
+
   return serialize(doc)
 }

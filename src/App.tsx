@@ -80,13 +80,18 @@ import {
   addPage as addPageTo,
   deleteElement as deleteElementIn,
   deletePage as deletePageFrom,
+  duplicateElement as duplicateElementIn,
   duplicatePage as duplicatePageIn,
   insertElement as insertElementIn,
   isSafePagePath,
+  moveElement as moveElementIn,
   movePage as movePageIn,
   normalizePagePath,
   renamePagePath as renamePagePathIn,
   sanitizeEditedOuterHtml,
+  setElementAlt as setElementAltIn,
+  setElementLayout as setElementLayoutIn,
+  setElementLink as setElementLinkIn,
   setElementSrc as setElementSrcIn,
   replaceElement as replaceElementIn,
   setElementText as setElementTextIn,
@@ -96,6 +101,9 @@ import {
   linkElement,
   type PageHeadMeta,
 } from './lib/pages'
+import { insertSectionIntoPage, sectionById } from './lib/sectionLibrary'
+import { withDesignTokens, type DesignTokens } from './lib/designTokens'
+import { createSiteFromTemplate, SITE_TEMPLATES } from './lib/siteTemplates'
 import {
   deinlineMarkup,
   internalLinks,
@@ -262,7 +270,14 @@ type SiteLanded =
   | Extract<SiteEditOutcome, { ok: false }>
 
 export function App(): React.ReactElement {
+  const standaloneDev =
+    import.meta.env.DEV &&
+    import.meta.env.MODE !== 'test' &&
+    typeof window !== 'undefined' &&
+    window.parent === window
   const { error: bridgeError, ready, meta } = usePlatformBridge()
+  const effectiveReady = standaloneDev || ready
+  const effectiveBridgeError = standaloneDev ? null : bridgeError
   const drawerRequestRef = useRef<DrawerRequest | null>(null)
   const drawerCommitBusy = useRef(false)
   const { resource, clearResource } = usePlatformViewportResource(ready, meta)
@@ -271,11 +286,11 @@ export function App(): React.ReactElement {
   const compactFrame = compact ? { 'data-compact-room': '' } : undefined
 
   const [document, setDocument] = useState<SiteDocument>(
-    createDefaultSiteDocument,
+    standaloneDev ? () => createSiteFromTemplate('studio-agency') : createDefaultSiteDocument,
   )
   const documentRef = useRef(document)
   const [documentPath, setDocumentPath] = useState<string | null>(null)
-  const [documentStarted, setDocumentStarted] = useState(false)
+  const [documentStarted, setDocumentStarted] = useState(standaloneDev)
   const [opening, setOpening] = useState(false)
   const openingRef = useRef(false)
   const openGeneration = useRef(0)
@@ -348,6 +363,7 @@ export function App(): React.ReactElement {
   const exportBusy = useRef(false)
   const exportStaticBusyRef = useRef(false)
   const [publishOpen, setPublishOpen] = useState(false)
+  const [cloudShareOpen, setCloudShareOpen] = useState(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   /** The organisation's house style for this person; null with no organisation (or an older shell). */
   const [houseStyle, setHouseStyle] = useState<BrandDetail | null>(null)
@@ -2573,19 +2589,19 @@ export function App(): React.ReactElement {
     setStatus(landed.ok ? 'Image inserted at end of page.' : landed.message)
   }, setStatus, '[data-video-drop-surface]')
 
-  if (bridgeError) {
+  if (effectiveBridgeError) {
     return (
       <AppFrame {...compactFrame}>
         <EmptyState
           tone="error"
           title="Bridge unavailable"
-          message={bridgeError.message}
+          message={effectiveBridgeError.message}
         />
       </AppFrame>
     )
   }
 
-  if (!ready) {
+  if (!effectiveReady) {
     return (
       <AppFrame {...compactFrame}>
         <EmptyState
@@ -2921,7 +2937,120 @@ export function App(): React.ReactElement {
             canRedo={undoCounts.redo > 0}
             onUndo={undoManual}
             onRedo={redoManual}
-            modalOpen={publishOpen || wizardOpen || brandOpen || switcherOpen}
+            modalOpen={publishOpen || wizardOpen || brandOpen || switcherOpen || cloudShareOpen}
+            cloudShareOpen={cloudShareOpen}
+            onCloudShareOpenChange={setCloudShareOpen}
+            onInsertSection={(page, sectionId) => {
+              const section = sectionById(sectionId)
+              const landed = applyDocument(current =>
+                insertSectionIntoPage(current, page, sectionId),
+              )
+              setStatus(
+                landed.ok
+                  ? `Inserted ${section?.name ?? sectionId} into ${page}.`
+                  : landed.message,
+              )
+            }}
+            onApplyDesignTokens={(tokens: DesignTokens) => {
+              const landed = applyDocument(current => ({
+                ...current,
+                styles: withDesignTokens(current.styles, tokens),
+              }))
+              if (landed.ok && landed.changed) {
+                setStatus('Updated design tokens in styles/site.css.')
+              }
+            }}
+            onMoveElement={(page, path, direction) => {
+              let nextPath = path
+              const landed = applyDocument(current => {
+                const html = current.pages[page]
+                if (!html) return current
+                const res = moveElementIn(html, path, direction)
+                nextPath = res.nextPath
+                return res.html === html ? current : writePageIn(current, page, res.html)
+              })
+              if (landed.ok && landed.changed) {
+                setSelection(cur => (cur && cur.page === page ? { ...cur, path: nextPath } : cur))
+                setStatus(`Moved element ${direction}.`)
+              }
+            }}
+            onDuplicateElement={(page, path) => {
+              let nextPath = path
+              const landed = applyDocument(current => {
+                const html = current.pages[page]
+                if (!html) return current
+                const res = duplicateElementIn(html, path)
+                nextPath = res.nextPath
+                return res.html === html ? current : writePageIn(current, page, res.html)
+              })
+              if (landed.ok && landed.changed) {
+                setSelection(cur => (cur && cur.page === page ? { ...cur, path: nextPath } : cur))
+                setStatus('Duplicated element.')
+              }
+            }}
+            onDeleteElement={(page, path) => {
+              const landed = applyDocument(current => {
+                const html = current.pages[page]
+                return html ? writePageIn(current, page, deleteElementIn(html, path)) : current
+              })
+              if (landed.ok && landed.changed) {
+                setSelection(null)
+                setStatus('Deleted element.')
+              }
+            }}
+            onSetElementLink={(page, path, input) => {
+              const landed = applyDocument(current => {
+                const html = current.pages[page]
+                return html ? writePageIn(current, page, setElementLinkIn(html, path, input)) : current
+              })
+              if (landed.ok && landed.changed) {
+                setStatus(input.href.trim() ? `Linked to ${input.href.trim()}.` : 'Removed link.')
+              }
+            }}
+            onSetElementAlt={(page, path, alt) => {
+              const landed = applyDocument(current => {
+                const html = current.pages[page]
+                return html ? writePageIn(current, page, setElementAltIn(html, path, alt)) : current
+              })
+              if (landed.ok && landed.changed) setStatus('Updated image alt text.')
+            }}
+            onSetElementLayout={(page, path, patch) => {
+              const landed = applyDocument(current => {
+                const html = current.pages[page]
+                return html ? writePageIn(current, page, setElementLayoutIn(html, path, patch)) : current
+              })
+              if (landed.ok && landed.changed) setStatus('Updated element layout.')
+            }}
+            onCheckResponsive={async page => {
+              const current = documentRef.current
+              const out: Record<string, LayoutRead | null> = {}
+              for (const width of [390, 768]) {
+                const srcdoc = previewDocument({
+                  html: current.pages[page] ?? '',
+                  styles: current.styles,
+                  assets: previewsRef.current,
+                  page,
+                })
+                const measured = await measurePage(
+                  srcdoc,
+                  { width, height: Math.round(width * 1.9), timeoutMs: 4000 },
+                  collectLayout,
+                  width,
+                )
+                out[`${page}@${width}`] = measured.ok ? measured.value : null
+              }
+              return out
+            }}
+            onOpenExternalUrl={url => {
+              if (standaloneDev) {
+                window.open(url, '_blank', 'noopener,noreferrer')
+                return
+              }
+              void openExternalUrl(url).catch(() =>
+                setStatus('The browser could not be opened.'),
+              )
+            }}
+            onStatusMessage={setStatus}
             onDeletePage={page =>
               applyDocument(current => deletePageFrom(current, page))
             }
@@ -3098,6 +3227,28 @@ export function App(): React.ReactElement {
             busy={wizardBusy !== null}
             busyLabel={wizardBusy ?? ''}
             error={wizardError}
+            onUseTemplate={templateId => {
+              const template = SITE_TEMPLATES.find(item => item.id === templateId)
+              const nextDoc = createSiteFromTemplate(templateId)
+              const landed = landEdit({
+                next: current => ({
+                  ...nextDoc,
+                  manifest: {
+                    ...nextDoc.manifest,
+                    ...(current.manifest.published ? { published: current.manifest.published } : {}),
+                  },
+                }),
+                origin: 'manual',
+                reason: 'template',
+              })
+              if (landed.ok) {
+                setSelectedPage(DEFAULT_HOME_PAGE)
+                setSelection(null)
+                setWizardError(null)
+                setWizardOpen(false)
+                setStatus(`Started from ${template?.name ?? templateId} template (${Object.keys(nextDoc.pages).length} pages).`)
+              }
+            }}
             onCreate={briefText => {
               void (async () => {
                 setWizardError(null)
@@ -3179,6 +3330,7 @@ export function App(): React.ReactElement {
               applyDocument(current => add404PageTo(current))
               setStatus('Added 404.html starter page.')
             }}
+            onOpenCloudShare={() => setCloudShareOpen(true)}
             onClose={() => setPublishOpen(false)}
           />
         </>
