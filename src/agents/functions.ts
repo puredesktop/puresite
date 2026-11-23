@@ -824,20 +824,24 @@ export const PURESITE_FUNCTIONS: readonly AppFunctionDefinition<SiteAgentToolCon
 
       if (mode === 'create' && resolvedSections.length > 0) {
         // Replace starter placeholder <main class="page">...</main> with clean <main> for scaffolded sections
+        const combined = resolvedSections.map(s => s.markup).join('\n')
         html = html.replace(
           /<main\b[^>]*>[\s\S]*?<\/main>/i,
-          `<main>\n${resolvedSections.map(s => s.markup).join('\n')}\n    </main>`,
+          () => `<main>\n${combined}\n    </main>`,
         )
       } else if (mode === 'replace' && resolvedSections.length > 0) {
         const combined = resolvedSections.map(s => s.markup).join('\n')
         if (/<main\b[^>]*>[\s\S]*?<\/main>/i.test(html)) {
-          html = html.replace(/<main\b[^>]*>[\s\S]*?<\/main>/i, `<main>\n${combined}\n</main>`)
+          html = html.replace(/<main\b[^>]*>[\s\S]*?<\/main>/i, () => `<main>\n${combined}\n</main>`)
         } else if (/<body\b[^>]*>[\s\S]*?<\/body>/i.test(html)) {
-          html = html.replace(/<body\b([^>]*)>[\s\S]*?<\/body>/i, `<body$1>\n<main>\n${combined}\n</main>\n</body>`)
+          html = html.replace(
+            /<body\b([^>]*)>[\s\S]*?<\/body>/i,
+            (_match, attrs: string) => `<body${attrs}>\n<main>\n${combined}\n</main>\n</body>`,
+          )
         } else {
           html = starterPageHtml(pageTitle, targetPage).replace(
             /<main\b[^>]*>[\s\S]*?<\/main>/i,
-            `<main>\n${combined}\n</main>`,
+            () => `<main>\n${combined}\n</main>`,
           )
         }
       } else {

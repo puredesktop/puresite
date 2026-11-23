@@ -613,7 +613,7 @@ describe('PureSite Operations Registry (Functions + Core + Extended Escape Hatch
             sections: [
               'hero',
               'metrics-strip',
-              { markup: '<section><p>Annual fellowship stipends available.</p></section>' },
+              { markup: '<section><p>Annual fellowship stipends ($$50k &amp; $&amp; travel) available.</p></section>' },
             ],
             head: {
               lang: 'en',
@@ -636,6 +636,7 @@ describe('PureSite Operations Registry (Functions + Core + Extended Escape Hatch
     expect(readPageHead(f1.getDoc().pages['grants/index.html']!).description).toContain(
       'fellowship grants',
     )
+    expect(f1.getDoc().pages['grants/index.html']).toContain('$$50k &amp; $&amp; travel')
 
     // Append another section onto the newly created page using chained hash
     const appended = JSON.parse(
